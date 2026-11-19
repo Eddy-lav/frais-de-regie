@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Frais de régie</title>
+<meta name="description" content="Notes de frais par employeur, justificatifs rangés dans Dropbox.">
+<meta name="theme-color" content="#0f6e66">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Frais">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="lib/jspdf-2.5.1.umd.min.js" defer></script>
+<script src="lib/jszip-3.10.1.min.js" defer></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Frais de régie</h1>
+      <button type="button" class="sync" id="syncChip" data-s="local"><span class="dot"></span><span id="syncText">Sur cet appareil</span></button>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="btnEmps" type="button">Employeurs</button>
+      <button class="btn ghost" id="btnExport" type="button">Exporter</button>
+      <button class="btn ghost" id="btnSettings" type="button" aria-label="Réglages">Réglages</button>
+      <button class="btn primary" id="btnAdd" type="button">+ Ticket</button>
+    </div>
+  </header>
+
+  <div id="notice" class="note" hidden></div>
+  <div id="updateBar" class="note ok" hidden>Nouvelle version prête. <button class="linkbtn" id="btnReload" type="button">Recharger</button></div>
+
+  <!-- Formulaire ticket -->
+  <section class="panel" id="formPanel" hidden aria-labelledby="formTitle">
+    <div class="row between">
+      <h2 id="formTitle">Nouveau ticket</h2>
+      <button class="btn ghost" id="btnCloseForm" type="button">Fermer</button>
+    </div>
+    <div class="photo">
+      <label class="btn" for="fPhoto" id="photoLabel">Photo ou PDF du ticket</label>
+      <input class="sr" type="file" id="fPhoto" accept="image/*,application/pdf">
+      <img id="fPreview" alt="Aperçu du justificatif" hidden>
+      <button class="btn ghost" id="btnView" type="button" hidden>Voir en grand</button>
+      <span class="status" id="ocrStatus"></span>
+    </div>
+    <div class="grid2">
+      <div class="field"><label for="fDate">Date</label><input type="date" id="fDate"></div>
+      <div class="field"><label for="fAmount">Montant TTC (€)</label><input type="text" inputmode="decimal" id="fAmount" placeholder="0,00"></div>
+      <div class="field"><label for="fMerchant">Commerçant</label><input type="text" id="fMerchant" placeholder="Uber, Sanef, Ibis…"></div>
+      <div class="field"><label for="fCat">Catégorie</label><select id="fCat"></select></div>
+      <div class="field"><label for="fEmp">Employeur</label><select id="fEmp"></select></div>
+      <div class="field" id="newEmpField" hidden><label for="fNewEmp">Nom du nouvel employeur</label><input type="text" id="fNewEmp" placeholder="Nom de la société"></div>
+      <div class="field"><label for="fStatus">Statut</label>
+        <select id="fStatus"><option value="a_envoyer">À envoyer</option><option value="envoyee">Envoyée</option><option value="remboursee">Remboursée</option></select></div>
+    </div>
+    <div class="field"><label for="fNote">Détail (concert, trajet…)</label><textarea id="fNote" placeholder="Retour de concert, Zénith → Neuilly-Plaisance"></textarea></div>
+    <div class="row between">
+      <div class="row"><button class="btn danger" id="btnDelete" type="button" hidden>Supprimer</button></div>
+      <div class="row"><span class="status" id="saveStatus"></span><button class="btn primary" id="btnSave" type="button">Enregistrer</button></div>
+    </div>
+  </section>
+
+  <!-- Export -->
+  <section class="panel" id="exportPanel" hidden aria-labelledby="expTitle">
+    <div class="row between">
+      <h2 id="expTitle">Faire une note de frais</h2>
+      <button class="btn ghost" id="btnCloseExp" type="button">Fermer</button>
+    </div>
+    <div class="grid2">
+      <div class="field"><label for="eEmp">Employeur</label><select id="eEmp"></select></div>
+      <div class="field"><label for="eWhich">Dépenses</label>
+        <select id="eWhich"><option value="a_envoyer">Seulement celles à envoyer</option><option value="all">Toutes</option></select></div>
+      <div class="field"><label for="eName">Ton nom (en tête du PDF)</label><input type="text" id="eName"></div>
+      <div class="field end"><label class="check"><input type="checkbox" id="eMark" checked>Marquer comme envoyées</label></div>
+    </div>
+    <div id="expPreview" class="status"></div>
+    <div class="row end">
+      <span class="status" id="expStatus"></span>
+      <button class="btn" id="btnCsv" type="button">CSV</button>
+      <button class="btn primary" id="btnPdf" type="button">PDF avec justificatifs</button>
+    </div>
+  </section>
+
+  <!-- Employeurs -->
+  <section class="panel" id="empPanel" hidden aria-labelledby="empTitle">
+    <div class="row between">
+      <h2 id="empTitle">Employeurs</h2>
+      <button class="btn ghost" id="btnCloseEmp" type="button">Fermer</button>
+    </div>
+    <div id="empList" class="list"></div>
+    <div class="emp-row">
+      <input type="text" id="empNew" placeholder="Ajouter un employeur" aria-label="Nom du nouvel employeur">
+      <button class="btn" id="btnEmpAdd" type="button">Ajouter</button>
+    </div>
+    <span class="status" id="empStatus"></span>
+  </section>
+
+  <!-- Réglages -->
+  <section class="panel" id="setPanel" hidden aria-labelledby="setTitle">
+    <div class="row between">
+      <h2 id="setTitle">Réglages</h2>
+      <button class="btn ghost" id="btnCloseSet" type="button">Fermer</button>
+    </div>
+
+    <div class="block">
+      <div class="label">Dropbox</div>
+      <p class="status" id="dbxText"></p>
+      <div class="row">
+        <button class="btn primary" id="btnDbxConnect" type="button">Connecter Dropbox</button>
+        <button class="btn" id="btnDbxSync" type="button" hidden>Synchroniser</button>
+        <button class="btn danger" id="btnDbxOff" type="button" hidden>Déconnecter cet appareil</button>
+      </div>
+      <div id="codeBox" class="block" hidden>
+        <p class="status">Dropbox s’est ouvert dans une autre fenêtre. Autorise l’accès, copie le code affiché, puis colle-le ici.</p>
+        <div class="emp-row"><input type="text" id="dbxCode" placeholder="Code Dropbox" aria-label="Code Dropbox" autocomplete="off"><button class="btn primary" id="btnDbxCode" type="button">Valider</button></div>
+      </div>
+      <button class="linkbtn" id="btnCodeFlow" type="button">Je n’arrive pas à revenir dans l’appli après Dropbox</button>
+    </div>
+
+    <div class="block">
+      <div class="field"><label for="sName">Ton nom (en tête des notes de frais)</label>
+        <div class="emp-row"><input type="text" id="sName"><button class="btn" id="btnName" type="button">Enregistrer</button></div></div>
+    </div>
+
+    <div class="block">
+      <div class="label">Lecture des photos par Claude</div>
+      <p class="status">Optionnel. Les PDF se remplissent tout seuls, sans IA. Pour les photos de tickets, colle une clé API Claude (console.anthropic.com). Compte environ 1 centime par ticket lu. La clé reste sur cet appareil, elle n’est pas envoyée dans Dropbox.</p>
+      <div class="emp-row"><input type="password" id="sKey" placeholder="sk-ant-…" aria-label="Clé API Claude" autocomplete="off"><button class="btn" id="btnKey" type="button">Enregistrer</button></div>
+      <label class="check"><input type="checkbox" id="sUseAi">Lire aussi les PDF avec Claude quand la lecture sans IA ne trouve rien</label>
+      <span class="status" id="keyStatus"></span>
+    </div>
+
+    <div class="block">
+      <div class="label">Reprendre des tickets</div>
+      <p class="status">Importe un fichier de sauvegarde (.zip), par exemple celui de l’ancienne version de l’appli.</p>
+      <label class="btn" for="sImport">Importer un .zip</label>
+      <input class="sr" type="file" id="sImport" accept=".zip,application/zip">
+      <span class="status" id="importStatus"></span>
+    </div>
+    <p class="status small" id="versionText"></p>
+  </section>
+
+  <section aria-label="À envoyer par employeur">
+    <div class="label" style="margin-bottom:8px">À envoyer, par employeur</div>
+    <div class="summary" id="summary"></div>
+  </section>
+
+  <section class="stack" aria-label="Tickets">
+    <div class="row between">
+      <div class="seg" id="statusSeg" role="group" aria-label="Filtrer par statut">
+        <button type="button" data-s="a_envoyer" aria-pressed="true">À envoyer</button>
+        <button type="button" data-s="envoyee" aria-pressed="false">Envoyées</button>
+        <button type="button" data-s="remboursee" aria-pressed="false">Remboursées</button>
+        <button type="button" data-s="all" aria-pressed="false">Tout</button>
+      </div>
+      <select id="empFilter" aria-label="Filtrer par employeur" class="auto"></select>
+    </div>
+    <div class="list" id="list"></div>
+  </section>
+</div>
+
+<div id="viewer" class="viewer" hidden role="dialog" aria-modal="true" aria-labelledby="vTitle">
+  <div class="vbar"><span id="vTitle">Justificatif</span><button class="btn" id="vClose" type="button">Fermer</button></div>
+  <div class="vbody" id="vBody"></div>
+</div>
+</body>
+</html>
