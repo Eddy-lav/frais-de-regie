@@ -95,6 +95,7 @@ function renderSync() {
     s.status === "ok" ? "Synchronisé avec Dropbox" :
     s.status === "sync" ? "Synchronisation…" :
     s.status === "full" ? "Dropbox est plein" :
+    s.status === "scope" ? "Dropbox : autorisation manquante" :
     s.status === "offline" ? "Hors ligne, envoi plus tard" + waiting :
     store.hasAppKey() ? "Sur cet appareil seulement · Connecter Dropbox" : "Sur cet appareil seulement";
   renderDbx();
@@ -384,10 +385,14 @@ function renderDbx() {
   const s = store.getStatus();
   const t = $("dbxText");
   if (!store.hasAppKey()) { t.textContent = "Dropbox n’est pas encore configuré dans l’appli. Tes tickets restent sur cet appareil en attendant."; }
+  else if (s.status === "scope") t.textContent = "L’appli Dropbox n’a pas les autorisations nécessaires. Sur dropbox.com/developers/apps, onglet Permissions, coche files.content.read et files.content.write, clique Submit, puis reviens ici, déconnecte cet appareil et reconnecte-le.";
+  else if (!s.connected && /token_scope/.test(s.lastError)) t.textContent = "Les autorisations de l’appli Dropbox ont changé : reconnecte Dropbox pour les appliquer.";
   else if (s.connected) {
     t.textContent = s.status === "ok" ? "Connecté. Tes tickets et justificatifs sont dans Dropbox, dossier Applications." :
       s.status === "full" ? "Connecté, mais ton Dropbox est plein : les nouveaux justificatifs attendent sur cet appareil." :
-      s.status === "sync" ? "Connecté. Synchronisation en cours…" : "Connecté. Pas de connexion pour l’instant : tout partira dès que possible.";
+      s.status === "sync" ? "Connecté. Synchronisation en cours…" :
+      /^offline/.test(s.lastError) || !s.lastError ? "Connecté. Pas de connexion pour l’instant : tout partira dès que possible." :
+      "Connecté, mais Dropbox refuse l’envoi. Détail technique : " + s.lastError;
   } else t.textContent = "Pas connecté. Tes tickets restent sur cet appareil. Connecte Dropbox pour les retrouver sur l’ordi et le téléphone.";
   $("btnDbxConnect").hidden = s.connected || !store.hasAppKey();
   $("btnDbxSync").hidden = $("btnDbxOff").hidden = !s.connected;

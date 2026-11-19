@@ -122,8 +122,17 @@ async function dbx(kind, endpoint, args, body, retried) {
   const host = kind === "rpc" ? "https://api.dropboxapi.com/2/" : "https://content.dropboxapi.com/2/";
   let r;
   try { r = await fetch(host + endpoint, init); } catch { throw err("offline"); }
-  if (r.status === 401 && !retried) return dbx(kind, endpoint, args, body, true);
-  if (r.status === 401) { LS.del(AUTH); throw err("not_connected"); }
+  if (r.status === 401) {
+    const j = await r.json().catch(() => ({}));
+    if (/missing_scope/.test(j.error_summary || "")) { LS.del(AUTH); throw err("token_scope"); }
+    if (!retried) return dbx(kind, endpoint, args, body, true);
+    LS.del(AUTH); throw err("not_connected");
+  }
+  if (r.status === 400) {
+    const t = await r.text().catch(() => "");
+    if (/scope/i.test(t)) throw err("app_scope", { summary: t });
+    throw err("http_400", { summary: t.slice(0, 300) });
+  }
   if (r.status === 409) { const j = await r.json().catch(() => ({})); throw err("conflict", { summary: j.error_summary || "" }); }
   if (r.status === 507) throw err("dropbox_full");
   if (r.status === 429 || r.status >= 500) throw err("offline");
@@ -267,7 +276,8 @@ async function doSync() {
     setStatus(st.dirty ? "offline" : "ok");
   } catch (e) {
     persist();
-    setStatus(e.code === "not_connected" ? "local" : e.code === "dropbox_full" ? "full" : "offline", e.code);
+    const s = e.code === "not_connected" || e.code === "token_scope" ? "local" : e.code === "dropbox_full" ? "full" : e.code === "app_scope" ? "scope" : "offline";
+    setStatus(s, e.code + (e.summary ? " : " + e.summary.slice(0, 200) : ""));
   }
 }
 addEventListener("online", () => scheduleSync(200));
