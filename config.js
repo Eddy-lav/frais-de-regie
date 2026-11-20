@@ -3,5 +3,5 @@
 // (accès « App folder »). Ce n'est pas un secret : l'appli utilise la connexion PKCE, sans mot de passe d'appli.
 export const CONFIG = {
   dropboxAppKey: "y5on94jypdufx2y",
-  appVersion: "1.0.0",
+  appVersion: "1.1.0",
 };

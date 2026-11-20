@@ -92,6 +92,7 @@ textarea{min-height:64px;resize:vertical}
 @media (prefers-reduced-motion:no-preference){.panel{animation:in .18s ease-out}@keyframes in{from{transform:translateY(4px);opacity:.6}to{transform:none;opacity:1}}}
 @media (max-width:520px){
   .top .row .btn.ghost{flex:1 1 0;padding-inline:8px}
+  body.panel-open #btnAdd{display:none}
   #btnAdd{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:20;border-radius:999px;padding:14px 22px;min-height:52px;box-shadow:0 6px 18px rgba(0,0,0,.22)}
 }
 .block > .btn{align-self:flex-start}

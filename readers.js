@@ -90,9 +90,38 @@ function findAmount(t) {
   while ((m = euro.exec(t))) { const v = num(m[1] || m[2]); if (v != null && v > 0 && (best == null || v > best)) best = v; }
   return best;
 }
+/* ---------- TVA ---------- */
+export const VAT_RATES = [20, 10, 5.5, 2.1, 0];
+// Taux le plus courant par catégorie en France (à vérifier sur le ticket)
+export const USUAL_VAT = { "Taxi / VTC": 10, "Transports en commun": 10, "Train / avion": 10, "Péage / parking": 20, "Carburant": 20, "Repas": 10, "Hôtel": 10, "Matériel": 20, "Location véhicule": 20 };
+export const vatFromTtc = (ttc, rate) => Math.round(ttc * rate / (100 + rate) * 100) / 100;
+export function findVat(text, ttc) {
+  if (/TVA non applicable|art(icle)?\.?\s*293\s*B|exon[ée]r[ée] de TVA/i.test(text)) return { tva: 0, taux_tva: 0 };
+  const AMT = /(\d{1,3}(?:[\s\u00a0\u202f.]\d{3})*[.,]\d{2}|\d+[.,]\d{2})/g;
+  const RATE = /(\d{1,2}(?:[.,]\d{1,2})?)\s*%/g;
+  const found = [], rates = new Set();
+  const re = /\b(?:TVA|T\.V\.A\.?|VAT)\b/gi; let m;
+  while ((m = re.exec(text))) {
+    const win = text.slice(m.index, m.index + 70);
+    for (const a of win.matchAll(AMT)) { const v = num(a[1]); if (v != null && v > 0 && (ttc == null || v < ttc)) found.push(v); }
+    for (const r of win.matchAll(RATE)) { const v = parseFloat(r[1].replace(",", ".")); if (VAT_RATES.includes(v) && v > 0) rates.add(v); }
+  }
+  if (ttc != null) {
+    for (const a of found) for (const r of VAT_RATES.filter(x => x > 0)) {
+      if (Math.abs(a - vatFromTtc(ttc, r)) <= Math.max(0.02, 0.01 * a)) return { tva: a, taux_tva: r };
+    }
+    if (rates.size === 1) { const r = [...rates][0]; return { tva: vatFromTtc(ttc, r), taux_tva: r }; }
+  }
+  if (rates.size > 1 && found.length) {
+    return { tva: null, taux_tva: "multi" };
+  }
+  return { tva: null, taux_tva: null };
+}
+
 export function localParse(text, filename) {
   const t = text + " " + (filename || "");
   const out = { date: findDate(text), montant: findAmount(text), marchand: null, categorie: null };
+  Object.assign(out, findVat(text, out.montant));
   for (const [name, cat] of MERCHANTS) {
     const re = new RegExp("(^|[^a-z])" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "([^a-z]|$)", "i");
     if (re.test(t)) { out.marchand = name; out.categorie = cat; break; }
@@ -114,8 +143,10 @@ const SCHEMA = {
     devise: { type: "string", description: "Code ISO de la devise, EUR le plus souvent" },
     categorie: { type: "string", enum: CATS },
     detail: { type: "string", description: "5 mots maximum, ou chaîne vide" },
+    tva: { ...nullable("number"), description: "Montant total de la TVA indiqué sur le ticket, null s'il n'est pas indiqué" },
+    taux_tva: { anyOf: [{ type: "number", enum: VAT_RATES }, { type: "string", enum: ["multi"] }, { type: "null" }], description: "Taux de TVA en %, \"multi\" s'il y a plusieurs taux, null s'il n'est pas indiqué" },
   },
-  required: ["date", "marchand", "montant", "devise", "categorie", "detail"],
+  required: ["date", "marchand", "montant", "devise", "categorie", "detail", "tva", "taux_tva"],
   additionalProperties: false,
 };
 async function toB64(blob) { const buf = new Uint8Array(await blob.arrayBuffer()); let s = ""; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return btoa(s); }
@@ -124,7 +155,7 @@ export async function readWithClaude({ apiKey, text, image }) {
   const Anthropic = await loadSdk().catch(() => { throw Object.assign(new Error("sdk"), { code: "offline" }); });
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 1 });
   const instructions = `Tu lis ${text ? "le texte extrait d'une facture ou d'un reçu au format PDF" : "la photo d'un ticket de caisse, d'une facture ou d'un reçu"}. Contexte : France, un technicien du spectacle qui fait ses notes de frais (taxi/VTC, péage, parking, carburant, repas, hôtel, train, location de véhicule, matériel).
-Donne la date du paiement, le commerçant, le montant total TTC payé, la devise, la catégorie et un détail très court (par exemple « Paris → Lyon » ou « course de nuit »). Si l'année n'est pas lisible, prends ${new Date().getFullYear()}. Mets null pour ce qui est illisible.`;
+Donne la date du paiement, le commerçant, le montant total TTC payé, la devise, la catégorie et un détail très court (par exemple « Paris → Lyon » ou « course de nuit »). Si l'année n'est pas lisible, prends ${new Date().getFullYear()}. Donne aussi la TVA telle qu'elle est écrite sur le ticket (montant total de TVA et taux) ; ne la calcule pas si elle n'est pas indiquée. Mets null pour ce qui est illisible.`;
   const content = [];
   if (image) content.push({ type: "image", source: { type: "base64", media_type: image.type || "image/jpeg", data: await toB64(image) } });
   content.push({ type: "text", text: instructions + (text ? "\n\nTexte du document :\n" + text.slice(0, 20000) : "") });

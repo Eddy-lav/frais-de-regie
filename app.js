@@ -1,6 +1,6 @@
 import { CONFIG } from "./config.js";
 import * as store from "./store.js";
-import { CATS, readPdf, pdfPages, shrink, localParse, readWithClaude } from "./readers.js";
+import { CATS, readPdf, pdfPages, shrink, localParse, readWithClaude, USUAL_VAT, vatFromTtc } from "./readers.js";
 
 const STATUS_LABEL = { a_envoyer: "À envoyer", envoyee: "Envoyée", remboursee: "Remboursée" };
 const $ = id => document.getElementById(id);
@@ -103,7 +103,7 @@ function renderSync() {
 
 /* ---------- panneaux ---------- */
 const PANELS = ["formPanel", "exportPanel", "empPanel", "setPanel"];
-function showOnly(id) { for (const p of PANELS) $(p).hidden = p !== id; if (id) $(id).scrollIntoView({ behavior: "smooth", block: "start" }); }
+function showOnly(id) { for (const p of PANELS) $(p).hidden = p !== id; document.body.classList.toggle("panel-open", !!id); if (id) $(id).scrollIntoView({ behavior: "smooth", block: "start" }); }
 function openForm(x) {
   S.editing = x || null; S.photoBlob = null; S.previewBlob = null; S.photoType = x?.receipt?.type || ""; S.ocrCtl++;
   $("formTitle").textContent = x ? "Modifier le ticket" : "Nouveau ticket";
@@ -116,6 +116,10 @@ function openForm(x) {
   $("fEmp").value = x?.employerId || (S.fEmp !== "all" ? S.fEmp : (emps[0]?.id || "__new"));
   $("newEmpField").hidden = $("fEmp").value !== "__new"; $("fNewEmp").value = "";
   $("fStatus").value = x?.status || "a_envoyer";
+  $("fVatRate").value = x?.vatRate == null ? "" : String(x.vatRate);
+  $("fVat").value = x?.vat == null ? "" : String(x.vat.toFixed(2)).replace(".", ",");
+  S.vatManual = x?.vat != null && (x.vatRate === "multi" || x.vatRate == null || Math.abs(vatFromTtc(x.amount, x.vatRate) - x.vat) > 0.01);
+  updateVat();
   $("fNote").value = x?.note || "";
   $("fPhoto").value = "";
   const pv = $("fPreview"); pv.hidden = true; pv.removeAttribute("src");
@@ -129,6 +133,27 @@ function openForm(x) {
   showOnly("formPanel");
 }
 
+/* ---------- TVA ---------- */
+const rateVal = () => { const v = $("fVatRate").value; return v === "" ? null : v === "multi" ? "multi" : parseFloat(v); };
+const pct = r => String(r).replace(".", ",") + " %";
+function updateVat() {
+  const ttc = parseAmt($("fAmount").value), rate = rateVal();
+  if (!S.vatManual) {
+    if (typeof rate === "number" && isFinite(ttc)) $("fVat").value = vatFromTtc(ttc, rate).toFixed(2).replace(".", ",");
+    else if (rate == null) $("fVat").value = "";
+  }
+  const vat = parseAmt($("fVat").value);
+  $("htLine").textContent = isFinite(ttc) && isFinite(vat) ? `Hors taxes : ${fmt(ttc - vat)}` : "";
+  const usual = USUAL_VAT[$("fCat").value], hint = $("vatHint");
+  hint.hidden = !(rate == null && usual);
+  if (usual) hint.textContent = `Taux habituel pour « ${$("fCat").value} » : ${pct(usual)} (vérifie sur le ticket)`;
+}
+$("fAmount").addEventListener("input", updateVat);
+$("fCat").addEventListener("change", updateVat);
+$("fVatRate").addEventListener("change", () => { S.vatManual = false; updateVat(); });
+$("fVat").addEventListener("input", () => { S.vatManual = $("fVat").value.trim() !== ""; updateVat(); });
+$("vatHint").addEventListener("click", () => { const u = USUAL_VAT[$("fCat").value]; if (u) { $("fVatRate").value = String(u); S.vatManual = false; updateVat(); } });
+
 /* ---------- photo / PDF + lecture auto ---------- */
 function applyResult(r) {
   if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) $("fDate").value = r.date;
@@ -136,6 +161,10 @@ function applyResult(r) {
   if (r.marchand && !$("fMerchant").value) $("fMerchant").value = String(r.marchand).slice(0, 80);
   if (CATS.includes(r.categorie)) $("fCat").value = r.categorie;
   if (r.detail && !$("fNote").value) $("fNote").value = String(r.detail).slice(0, 120);
+  if (r.taux_tva != null && [...$("fVatRate").options].some(o => o.value === String(r.taux_tva))) $("fVatRate").value = String(r.taux_tva);
+  if (typeof r.tva === "number" && isFinite(r.tva)) { $("fVat").value = r.tva.toFixed(2).replace(".", ","); S.vatManual = true; }
+  else S.vatManual = false;
+  updateVat();
 }
 $("fPhoto").addEventListener("change", async e => {
   const f = e.target.files?.[0]; if (!f) return;
@@ -156,7 +185,7 @@ $("fPhoto").addEventListener("change", async e => {
     if (pdfImg) { S.previewBlob = pdfImg; pv.src = URL.createObjectURL(pdfImg); pv.hidden = false; }
     const r = pdfText.length >= 30 ? localParse(pdfText, f.name) : {};
     applyResult(r);
-    const got = [r.date && "la date", r.montant != null && "le montant", r.marchand && "le commerçant"].filter(Boolean);
+    const got = [r.date && "la date", r.montant != null && "le montant", r.marchand && "le commerçant", r.taux_tva != null && "la TVA"].filter(Boolean);
     const enough = r.date && r.montant != null;
     if (enough || !key || lsGet(LSK.ai) !== "1") {
       st.className = got.length ? "status okk" : "status";
@@ -197,6 +226,8 @@ $("btnSave").addEventListener("click", async () => {
   const amount = parseAmt($("fAmount").value);
   if (!$("fDate").value) { st.className = "status err"; st.textContent = "Indique la date."; return; }
   if (!isFinite(amount) || amount <= 0) { st.className = "status err"; st.textContent = "Indique un montant valide."; return; }
+  const vatTxt = $("fVat").value.trim(), vat = vatTxt ? parseAmt(vatTxt) : null;
+  if (vatTxt && (!isFinite(vat) || vat < 0 || vat >= amount)) { st.className = "status err"; st.textContent = "Le montant de TVA ne semble pas correct."; return; }
   $("btnSave").disabled = true; st.textContent = "Enregistrement…";
   try {
     const employerId = ensureEmployer();
@@ -215,7 +246,7 @@ $("btnSave").addEventListener("click", async () => {
     }
     const status = $("fStatus").value;
     store.saveExpense({ id, date: $("fDate").value, amount, merchant: $("fMerchant").value.trim(), category: $("fCat").value, employerId,
-      status, note: $("fNote").value.trim(), receipt, preview,
+      status, note: $("fNote").value.trim(), receipt, preview, vatRate: rateVal(), vat: vat == null ? (rateVal() === 0 ? 0 : null) : vat,
       createdAt: old?.createdAt || new Date().toISOString(), sentAt: status === "a_envoyer" ? null : (old?.sentAt || null) });
     S.fEmp = employerId; S.fStatus = status; syncSeg();
     showOnly(null); render();
@@ -288,12 +319,21 @@ async function deliver(filename, blob, rows) {
 $("btnCsv").addEventListener("click", async () => {
   const rows = exportRows(); if (!rows.length) return; saveName();
   const q = s => '"' + String(s ?? "").replace(/"/g, '""') + '"';
-  const lines = [["Date", "Commerçant", "Catégorie", "Détail", "Montant TTC (EUR)", "Statut"].map(q).join(";")];
-  for (const x of rows) lines.push([frDate(x.date), x.merchant, x.category, x.note, (Number(x.amount) || 0).toFixed(2).replace(".", ","), STATUS_LABEL[x.status]].map(q).join(";"));
-  const total = rows.reduce((s, x) => s + (Number(x.amount) || 0), 0);
-  lines.push(["", "", "", "Total", total.toFixed(2).replace(".", ","), ""].map(q).join(";"));
+  const n2 = v => v == null ? "" : (Number(v) || 0).toFixed(2).replace(".", ",");
+  const lines = [["Date", "Commerçant", "Catégorie", "Détail", "Montant HT (EUR)", "Taux TVA", "TVA (EUR)", "Montant TTC (EUR)", "Statut"].map(q).join(";")];
+  for (const x of rows) lines.push([frDate(x.date), x.merchant, x.category, x.note, x.vat == null ? "" : n2(x.amount - x.vat), rateLabel(x.vatRate), n2(x.vat), n2(x.amount), STATUS_LABEL[x.status]].map(q).join(";"));
+  const t = totals(rows);
+  lines.push(["", "", "", "Total", n2(t.ht), "", n2(t.vat), n2(t.ttc), ""].map(q).join(";"));
   await deliver(fileBase() + ".csv", new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv" }), rows);
 });
+const rateLabel = r => r == null ? "" : r === "multi" ? "plusieurs" : String(r).replace(".", ",") + " %";
+function totals(rows) {
+  const ttc = rows.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const vat = rows.reduce((s, x) => s + (x.vat == null ? 0 : Number(x.vat) || 0), 0);
+  const byRate = new Map();
+  for (const x of rows) if (x.vat != null && x.vat > 0) { const k = rateLabel(x.vatRate) || "?"; const o = byRate.get(k) || { ht: 0, vat: 0 }; o.ht += x.amount - x.vat; o.vat += x.vat; byRate.set(k, o); }
+  return { ttc, vat, ht: ttc - vat, byRate, missing: rows.filter(x => x.vat == null).length };
+}
 const blobToDataUrl = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
 const imgSize = url => new Promise(res => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => res(null); i.src = url; });
 $("btnPdf").addEventListener("click", async () => {
@@ -312,21 +352,38 @@ $("btnPdf").addEventListener("click", async () => {
     doc.text(`Employeur : ${emp}`, M, y); y += 5.5;
     doc.text(`Période : du ${frDate(rows[0].date)} au ${frDate(rows[rows.length - 1].date)}`, M, y); y += 5.5;
     doc.text(`Établie le ${frDate(today())}`, M, y); y += 9;
-    const cols = [{ t: "Date", x: M, w: 22 }, { t: "Commerçant", x: M + 22, w: 42 }, { t: "Catégorie", x: M + 64, w: 34 }, { t: "Détail", x: M + 98, w: 52 }, { t: "Montant", x: W - M, w: 28, r: true }];
+    const cols = [{ t: "Date", x: M, w: 19 }, { t: "Commerçant", x: M + 19, w: 38 }, { t: "Détail", x: M + 57, w: 43 },
+      { t: "HT", x: M + 122, r: true }, { t: "TVA", x: M + 150, r: true }, { t: "TTC", x: W - M, r: true }];
     const head = () => { doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); for (const c of cols) doc.text(c.t, c.x, y, c.r ? { align: "right" } : undefined); y += 2; doc.setDrawColor(160); doc.line(M, y, W - M, y); y += 5; doc.setFont("helvetica", "normal"); };
+    const small = (txt, x, yy, opt) => { doc.setFontSize(7.5); doc.setTextColor(120); doc.text(txt, x, yy, opt); doc.setTextColor(0); doc.setFontSize(9.5); };
     head();
     rows.forEach((x, i) => {
-      const det = doc.splitTextToSize(x.note || "", cols[3].w - 2), mer = doc.splitTextToSize(x.merchant || "", cols[1].w - 2), cat = doc.splitTextToSize(x.category || "", cols[2].w - 2);
-      const h = Math.max(det.length, mer.length, cat.length, 1) * 4.3 + 2;
+      const det = doc.splitTextToSize(x.note || "", cols[2].w - 2), mer = doc.splitTextToSize(x.merchant || "", cols[1].w - 2);
+      const h = Math.max(det.length, mer.length + 1, 2) * 4.3 + 1;
       if (y + h > 280) { doc.addPage(); y = 20; head(); }
-      doc.text(frDate(x.date), cols[0].x, y); doc.text(mer, cols[1].x, y); doc.text(cat, cols[2].x, y); doc.text(det, cols[3].x, y);
-      doc.text(eur(x.amount), cols[4].x, y, { align: "right" });
-      doc.setFontSize(7.5); doc.setTextColor(120); doc.text(`Justificatif n°${i + 1}${x.receipt ? "" : " : absent"}`, cols[0].x, y + 4); doc.setTextColor(0); doc.setFontSize(9.5);
+      doc.text(frDate(x.date), cols[0].x, y); doc.text(mer, cols[1].x, y); doc.text(det, cols[2].x, y);
+      small((x.category || "") + (x.receipt ? "" : " · sans justificatif"), cols[1].x, y + mer.length * 4.3);
+      doc.text(x.vat == null ? "—" : eur(x.amount - x.vat), cols[3].x, y, { align: "right" });
+      doc.text(x.vat == null ? "non indiquée" : eur(x.vat), cols[4].x, y, { align: "right" });
+      if (x.vatRate != null) small(rateLabel(x.vatRate), cols[4].x, y + 4, { align: "right" });
+      doc.text(eur(x.amount), cols[5].x, y, { align: "right" });
+      if (x.receipt) small(`Justif. n°${i + 1}`, cols[0].x, y + 4.3);
       y += h + 2;
     });
-    if (y > 270) { doc.addPage(); y = 20; }
+    const t = totals(rows);
+    if (y > 250) { doc.addPage(); y = 20; }
     doc.setDrawColor(160); doc.line(M, y, W - M, y); y += 6;
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("Total à rembourser", M, y); doc.text(eur(total), W - M, y, { align: "right" }); y += 14;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5);
+    doc.text("Totaux", M, y); doc.text(eur(t.ht), cols[3].x, y, { align: "right" }); doc.text(eur(t.vat), cols[4].x, y, { align: "right" }); doc.text(eur(t.ttc), cols[5].x, y, { align: "right" }); y += 8;
+    doc.setFontSize(11); doc.text("Total à rembourser (TTC)", M, y); doc.text(eur(total), W - M, y, { align: "right" }); y += 7;
+    doc.setFont("helvetica", "normal");
+    if (t.byRate.size) {
+      doc.setFontSize(8.5); doc.setTextColor(90);
+      doc.text("TVA par taux : " + [...t.byRate.entries()].map(([k, o]) => `${k} : HT ${eur(o.ht)}, TVA ${eur(o.vat)}`).join(" · "), M, y, { maxWidth: W - 2 * M }); y += 5;
+      doc.setTextColor(0);
+    }
+    if (t.missing) { small(`${t.missing} justificatif${t.missing > 1 ? "s" : ""} sans TVA indiquée : compté${t.missing > 1 ? "s" : ""} TTC dans le total HT.`, M, y); y += 5; }
+    y += 6;
     doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text("Signature :", M, y);
     const place = async (blob, title) => {
       const url = await blobToDataUrl(blob); const sz = await imgSize(url); if (!sz) throw 0;
