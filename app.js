@@ -128,6 +128,7 @@ function openForm(x) {
   $("btnView").hidden = !x?.receipt;
   const st = $("ocrStatus"); st.className = "status";
   st.textContent = x?.receipt ? (isImg(S.photoType) ? "" : "Justificatif PDF joint.") : (lsGet(LSK.key) ? "Les PDF se remplissent tout seuls. Les photos sont lues par Claude." : "Les PDF se remplissent tout seuls, sans IA.");
+  $("mmStatus").textContent = ""; renderMm();
   $("btnDelete").hidden = !x; $("btnDelete").dataset.armed = ""; $("btnDelete").textContent = "Supprimer";
   $("saveStatus").textContent = ""; $("btnSave").disabled = false;
   showOnly("formPanel");
@@ -165,6 +166,7 @@ function applyResult(r) {
   if (typeof r.tva === "number" && isFinite(r.tva)) { $("fVat").value = r.tva.toFixed(2).replace(".", ","); S.vatManual = true; }
   else S.vatManual = false;
   updateVat();
+  renderMm();
 }
 $("fPhoto").addEventListener("change", async e => {
   const f = e.target.files?.[0]; if (!f) return;
@@ -221,14 +223,15 @@ function ensureEmployer() {
   const ex = store.employers().find(e => e.name.toLowerCase() === name.toLowerCase()); if (ex) return ex.id;
   return store.saveEmployer({ id: store.uid(), name }).id;
 }
-$("btnSave").addEventListener("click", async () => {
+// Enregistre le formulaire. Renvoie le ticket enregistré, ou null si une erreur est affichée.
+async function saveForm(extra = {}) {
   const st = $("saveStatus"); st.className = "status";
   const amount = parseAmt($("fAmount").value);
-  if (!$("fDate").value) { st.className = "status err"; st.textContent = "Indique la date."; return; }
-  if (!isFinite(amount) || amount <= 0) { st.className = "status err"; st.textContent = "Indique un montant valide."; return; }
+  if (!$("fDate").value) { st.className = "status err"; st.textContent = "Indique la date."; return null; }
+  if (!isFinite(amount) || amount <= 0) { st.className = "status err"; st.textContent = "Indique un montant valide."; return null; }
   const vatTxt = $("fVat").value.trim(), vat = vatTxt ? parseAmt(vatTxt) : null;
-  if (vatTxt && (!isFinite(vat) || vat < 0 || vat >= amount)) { st.className = "status err"; st.textContent = "Le montant de TVA ne semble pas correct."; return; }
-  $("btnSave").disabled = true; st.textContent = "Enregistrement…";
+  if (vatTxt && (!isFinite(vat) || vat < 0 || vat >= amount)) { st.className = "status err"; st.textContent = "Le montant de TVA ne semble pas correct."; return null; }
+  st.textContent = "Enregistrement…";
   try {
     const employerId = ensureEmployer();
     const old = S.editing;
@@ -239,21 +242,91 @@ $("btnSave").addEventListener("click", async () => {
       const date = $("fDate").value;
       const path = `/justificatifs/${date.slice(0, 4)}/${date}_${slug($("fMerchant").value)}_${id.slice(-6)}.${ext}`;
       if (old?.receipt?.path && old.receipt.path !== path) store.removeFile(old.receipt.path);
-      if (old?.preview) store.removeFile(old.preview);
+      if (old?.preview && old.preview !== `/apercus/${id}.jpg`) store.removeFile(old.preview);
       await store.putFile(path, S.photoBlob);
       receipt = { path, type: S.photoType }; preview = null;
       if (S.photoType === "application/pdf" && S.previewBlob) { preview = `/apercus/${id}.jpg`; await store.putFile(preview, S.previewBlob); }
     }
-    const status = $("fStatus").value;
-    store.saveExpense({ id, date: $("fDate").value, amount, merchant: $("fMerchant").value.trim(), category: $("fCat").value, employerId,
+    const status = extra.status || $("fStatus").value;
+    const saved = store.saveExpense({ ...(old || {}), id, date: $("fDate").value, amount, merchant: $("fMerchant").value.trim(), category: $("fCat").value, employerId,
       status, note: $("fNote").value.trim(), receipt, preview, vatRate: rateVal(), vat: vat == null ? (rateVal() === 0 ? 0 : null) : vat,
-      createdAt: old?.createdAt || new Date().toISOString(), sentAt: status === "a_envoyer" ? null : (old?.sentAt || null) });
+      createdAt: old?.createdAt || new Date().toISOString(), sentAt: status === "a_envoyer" ? null : (extra.sentAt || old?.sentAt || null),
+      ...(extra.via ? { via: extra.via } : {}) });
+    // le formulaire continue sur ce ticket (photo déjà enregistrée)
+    S.editing = saved; S.photoBlob = null; S.previewBlob = null; S.photoType = saved.receipt?.type || "";
     S.fEmp = employerId; S.fStatus = status; syncSeg();
-    showOnly(null); render();
+    st.textContent = "";
+    return saved;
   } catch (err) {
     st.className = "status err"; st.textContent = err?.message && !err.code ? err.message : "L’enregistrement a échoué. Réessaie.";
-  } finally { $("btnSave").disabled = false; }
+    return null;
+  }
+}
+$("btnSave").addEventListener("click", async () => {
+  $("btnSave").disabled = true;
+  try { if (await saveForm()) { showOnly(null); render(); } }
+  finally { $("btnSave").disabled = false; }
 });
+
+/* ---------- Movinmotion ---------- */
+const MM_URL = "https://www.movinmotion.com/connexion/";
+const isMm = id => !!store.employers().find(e => e.id === id)?.movinmotion;
+function mmSummary() {
+  const vat = $("fVat").value.trim();
+  return [
+    ["Date", frDate($("fDate").value)],
+    ["Montant TTC", $("fAmount").value.trim() ? $("fAmount").value.trim() + " €" : ""],
+    ["TVA", vat ? `${vat} €${rateVal() != null && rateVal() !== "multi" ? " (" + String(rateVal()).replace(".", ",") + " %)" : ""}` : ""],
+    ["Commerçant", $("fMerchant").value.trim()],
+    ["Catégorie", $("fCat").value],
+    ["Détail", $("fNote").value.trim()],
+  ].filter(([, v]) => v);
+}
+function renderMm() {
+  const box = $("mmBox"); const on = isMm($("fEmp").value);
+  box.hidden = !on; if (!on) return;
+  const list = $("mmList"); list.replaceChildren();
+  for (const [k, v] of mmSummary()) {
+    const copy = el("button", { type: "button", class: "linkbtn", text: "Copier", onclick: async () => {
+      try { await navigator.clipboard.writeText(v.replace(/ €.*$/, "").trim()); copy.textContent = "Copié ✓"; setTimeout(() => copy.textContent = "Copier", 1500); } catch { copy.textContent = "Copie impossible"; }
+    } });
+    list.append(el("div", { class: "mm-row" }, el("span", { class: "mm-k", text: k }), el("span", { class: "mm-v", text: v }), copy));
+  }
+  const sent = S.editing?.via === "movinmotion" && S.editing.status !== "a_envoyer";
+  $("btnMm").textContent = sent ? "Renvoyer le justificatif" : "Envoyer vers Movinmotion";
+}
+["fDate", "fAmount", "fVat", "fMerchant", "fNote"].forEach(id => $(id).addEventListener("input", renderMm));
+["fVatRate", "fCat", "fEmp"].forEach(id => $(id).addEventListener("change", renderMm));
+$("btnMm").addEventListener("click", async () => {
+  const st = $("mmStatus"); st.className = "status";
+  $("btnMm").disabled = true;
+  try {
+    const hadReceipt = !!(S.photoBlob || S.editing?.receipt);
+    const x = await saveForm({ status: "envoyee", sentAt: new Date().toISOString(), via: "movinmotion" });
+    if (!x) return;
+    $("fStatus").value = "envoyee";
+    if (!hadReceipt) { st.className = "status err"; st.textContent = "Ajoute d’abord la photo ou le PDF du ticket."; return; }
+    const blob = await store.getFile(x.receipt.path);
+    const ext = x.receipt.path.split(".").pop();
+    const name = `${x.date}_${slug(x.merchant)}_${(Number(x.amount) || 0).toFixed(2).replace(".", ",")}EUR.${ext}`;
+    const file = new File([blob], name, { type: x.receipt.type });
+    const text = mmSummary().map(([k, v]) => `${k} : ${v}`).join("\n");
+    const mobile = matchMedia("(pointer:coarse)").matches;
+    if (mobile && navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name }); }
+      catch (e) { if (e?.name === "AbortError") { st.textContent = "Partage annulé. Le ticket reste marqué « Envoyée », change le statut si besoin."; return; } throw e; }
+    } else {
+      const a = el("a", { href: URL.createObjectURL(blob), download: name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      try { await navigator.clipboard.writeText(text); } catch {}
+    }
+    st.className = "status okk";
+    st.textContent = mobile ? "Justificatif prêt. Dans Movinmotion : Mes dépenses, puis +, ajoute ce fichier et vérifie les champs." :
+      "Justificatif téléchargé et infos copiées. Dans Movinmotion : Mes dépenses, puis +, ajoute ce fichier et vérifie les champs.";
+    renderMm(); render();
+  } catch { st.className = "status err"; st.textContent = "Le justificatif n’a pas pu être préparé (hors ligne ?)."; }
+  finally { $("btnMm").disabled = false; }
+});
+
 $("btnDelete").addEventListener("click", () => {
   const b = $("btnDelete");
   if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Confirmer la suppression"; return; }
@@ -273,7 +346,8 @@ function renderEmps() {
     const save = el("button", { type: "button", class: "btn", text: "Renommer", onclick: () => { const n = inp.value.trim(); if (n && n !== e.name) { store.saveEmployer({ ...e, name: n }); $("empStatus").textContent = "Renommé."; } } });
     const del = el("button", { type: "button", class: "btn danger", text: "Retirer", disabled: used, title: used ? "Des tickets sont rattachés à cet employeur" : null,
       onclick: () => { if (!used) { store.saveEmployer({ ...e, deleted: true }); renderEmps(); } } });
-    box.append(el("div", { class: "emp-row" }, inp, save, del));
+    const mm = el("input", { type: "checkbox", checked: !!e.movinmotion, onchange: ev => store.saveEmployer({ ...e, movinmotion: ev.target.checked }) });
+    box.append(el("div", { class: "emp-item" }, el("div", { class: "emp-row" }, inp, save, del), el("label", { class: "check small" }, mm, "Passe par Movinmotion (onglet « Mes dépenses »)")));
   }
 }
 $("btnEmpAdd").addEventListener("click", () => {
@@ -291,6 +365,7 @@ function updateExpPreview() {
   const r = exportRows(); const t = r.reduce((s, x) => s + (Number(x.amount) || 0), 0);
   $("expPreview").textContent = r.length ? `${r.length} ticket${r.length > 1 ? "s" : ""} pour ${fmt(t)}, du ${frDate(r[0].date)} au ${frDate(r[r.length - 1].date)}` : "Aucun ticket pour cet employeur.";
   $("btnPdf").disabled = $("btnCsv").disabled = !r.length;
+  $("expMm").hidden = !isMm($("eEmp").value);
 }
 ["eEmp", "eWhich"].forEach(id => $(id).addEventListener("change", updateExpPreview));
 const fileBase = () => `Note-de-frais_${slug(empName($("eEmp").value))}_${today()}`;

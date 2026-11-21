@@ -96,3 +96,11 @@ textarea{min-height:64px;resize:vertical}
   #btnAdd{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:20;border-radius:999px;padding:14px 22px;min-height:52px;box-shadow:0 6px 18px rgba(0,0,0,.22)}
 }
 .block > .btn{align-self:flex-start}
+.emp-item{display:flex;flex-direction:column;gap:6px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.check.small{font-size:.85rem;color:var(--muted)}
+.mm{display:flex;flex-direction:column;gap:10px;border:1px solid var(--accent);background:var(--accent-soft);border-radius:12px;padding:12px}
+.mm-list{display:flex;flex-direction:column;gap:2px}
+.mm-row{display:grid;grid-template-columns:96px 1fr auto;gap:8px;align-items:baseline;font-size:.9rem}
+.mm-k{color:var(--muted)}
+.mm-v{min-width:0;overflow-wrap:anywhere}
+.mm .btn.ghost{text-decoration:none}

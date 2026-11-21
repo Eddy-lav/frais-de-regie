@@ -65,6 +65,16 @@
         <select id="fStatus"><option value="a_envoyer">À envoyer</option><option value="envoyee">Envoyée</option><option value="remboursee">Remboursée</option></select></div>
     </div>
     <div class="field"><label for="fNote">Détail (concert, trajet…)</label><textarea id="fNote" placeholder="Retour de concert, Zénith → Neuilly-Plaisance"></textarea></div>
+    <div class="mm" id="mmBox" hidden>
+      <div class="label">Movinmotion</div>
+      <p class="status">Cet employeur passe par Movinmotion. Le bouton enregistre le ticket, prépare le justificatif à déposer dans « Mes dépenses » et le marque « Envoyée ».</p>
+      <div id="mmList" class="mm-list"></div>
+      <div class="row">
+        <button class="btn primary" id="btnMm" type="button">Envoyer vers Movinmotion</button>
+        <a class="btn ghost" href="https://www.movinmotion.com/connexion/" target="_blank" rel="noopener">Ouvrir Movinmotion</a>
+      </div>
+      <span class="status" id="mmStatus"></span>
+    </div>
     <div class="row between">
       <div class="row"><button class="btn danger" id="btnDelete" type="button" hidden>Supprimer</button></div>
       <div class="row"><span class="status" id="saveStatus"></span><button class="btn primary" id="btnSave" type="button">Enregistrer</button></div>
@@ -84,6 +94,7 @@
       <div class="field"><label for="eName">Ton nom (en tête du PDF)</label><input type="text" id="eName"></div>
       <div class="field end"><label class="check"><input type="checkbox" id="eMark" checked>Marquer comme envoyées</label></div>
     </div>
+    <p class="note ok" id="expMm" hidden>Cet employeur passe par Movinmotion : le plus simple est d’envoyer chaque ticket depuis sa fiche (bouton « Envoyer vers Movinmotion »). La note de frais ci-dessous reste possible si on te la demande.</p>
     <div id="expPreview" class="status"></div>
     <div class="row end">
       <span class="status" id="expStatus"></span>
