@@ -2,6 +2,15 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
+<script>
+// Frais de régie vit maintenant dans l'onglet « Frais pro » de Régie.
+// Ouvert seul (pas dans Régie, pas au retour de Dropbox) : on va dans Régie. « ?solo » garde l'ancienne page.
+(function () {
+  var q = location.search;
+  if (window.top !== window.self) document.documentElement.className += " embed";
+  else if (!/[?&](solo|code|state|error)=?/.test(q)) location.replace("budget/#frais");
+})();
+</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Frais de régie</title>
 <meta name="description" content="Notes de frais par employeur, justificatifs rangés dans Dropbox.">

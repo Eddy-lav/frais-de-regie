@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Reste à vivre</title>
-<meta name="description" content="Ce qu'il te reste à dépenser ce mois-ci, à partir de tes relevés Banque Populaire.">
+<title>Régie</title>
+<meta name="description" content="Ton budget d'intermittent : ce qu'il te reste ce mois-ci, tes opérations et tes frais pro à te faire rembourser.">
 <meta name="theme-color" content="#1d3557">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Reste à vivre">
+<meta name="apple-mobile-web-app-title" content="Régie">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap">
 <link rel="stylesheet" href="style.css">
@@ -20,13 +20,14 @@
 <body>
 <div class="wrap">
   <header class="top">
-    <h1 class="brand">Reste à vivre</h1>
+    <h1 class="brand"><span class="fader" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Régie</h1>
     <button type="button" class="sync" id="syncChip" data-s="local"><span class="dot"></span><span id="syncText">Sur cet appareil</span></button>
   </header>
 
   <nav class="tabs" aria-label="Sections">
     <button type="button" data-tab="mois" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M9 20V6M14 20v-8M19 20V4"/></svg>Ce mois</button>
     <button type="button" data-tab="ops"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h9"/></svg>Opérations</button>
+    <button type="button" data-tab="frais"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7z"/><path d="M10 12h6M10 16h4"/></svg>Frais pro</button>
     <button type="button" data-tab="comptes"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M15 15h3"/></svg>Comptes</button>
   </nav>
 
@@ -69,6 +70,11 @@
     </div>
     <div class="card stack" id="iPreview" hidden></div>
     <div id="iSuggest"></div>
+  </section>
+
+  <!-- FRAIS PRO : l'appli Frais de régie, chargée dès le départ pour que ses tickets se synchronisent -->
+  <section id="tab-frais" class="tab" hidden>
+    <iframe id="fraisFrame" src="../?embed=1" title="Frais pro" loading="eager"></iframe>
   </section>
 
   <!-- COMPTES -->

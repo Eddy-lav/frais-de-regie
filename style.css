@@ -104,3 +104,9 @@ textarea{min-height:64px;resize:vertical}
 .mm-k{color:var(--muted)}
 .mm-v{min-width:0;overflow-wrap:anywhere}
 .mm .btn.ghost{text-decoration:none}
+
+/* dans Régie */
+.pill.linked{background:var(--ok-soft);color:var(--ok)}
+.pill.unlinked{background:transparent;color:var(--muted,#667);border:1px solid currentColor;opacity:.75}
+html.embed header.top h1{display:none}
+html.embed .wrap{padding-top:12px}

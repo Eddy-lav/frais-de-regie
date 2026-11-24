@@ -83,7 +83,8 @@ function render() {
     else { th = el("div", { class: "thumb", text: x.receipt ? (isImg(x.receipt.type) ? "Photo" : "PDF") : "—" }); if (thumbPath) { th.dataset.path = thumbPath; thumbIO ? thumbIO.observe(th) : loadThumb(th); } }
     list.append(el("button", { type: "button", class: "item", onclick: () => openForm(x) }, th,
       el("div", { class: "main" }, el("div", { class: "mer", text: x.merchant || "(sans nom)" }), el("div", { class: "meta", text: [frDate(x.date), x.category, empName(x.employerId)].filter(Boolean).join(", ") })),
-      el("div", { class: "right" }, el("span", { class: "money", text: fmt(x.amount) }), el("span", { class: "pill " + x.status, text: STATUS_LABEL[x.status] || "" }))));
+      el("div", { class: "right" }, el("span", { class: "money", text: fmt(x.amount) }), el("span", { class: "pill " + x.status, text: STATUS_LABEL[x.status] || "" }),
+        isEmbed ? el("span", { class: "pill " + (x.txId ? "linked" : "unlinked"), text: x.txId ? "Lié au relevé" : "Pas lié au relevé" }) : null)));
   }
 }
 function syncSeg() { for (const b of $("statusSeg").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.s === S.fStatus)); }
@@ -105,7 +106,7 @@ function renderSync() {
 const PANELS = ["formPanel", "exportPanel", "empPanel", "setPanel"];
 function showOnly(id) { for (const p of PANELS) $(p).hidden = p !== id; document.body.classList.toggle("panel-open", !!id); if (id) $(id).scrollIntoView({ behavior: "smooth", block: "start" }); }
 function openForm(x) {
-  S.editing = x || null; S.photoBlob = null; S.previewBlob = null; S.photoType = x?.receipt?.type || ""; S.ocrCtl++;
+  S.editing = x || null; S.linkTx = null; S.photoBlob = null; S.previewBlob = null; S.photoType = x?.receipt?.type || ""; S.ocrCtl++;
   $("formTitle").textContent = x ? "Modifier le ticket" : "Nouveau ticket";
   $("fDate").value = x?.date || today();
   $("fAmount").value = x ? String(x.amount).replace(".", ",") : "";
@@ -251,7 +252,7 @@ async function saveForm(extra = {}) {
     const saved = store.saveExpense({ ...(old || {}), id, date: $("fDate").value, amount, merchant: $("fMerchant").value.trim(), category: $("fCat").value, employerId,
       status, note: $("fNote").value.trim(), receipt, preview, vatRate: rateVal(), vat: vat == null ? (rateVal() === 0 ? 0 : null) : vat,
       createdAt: old?.createdAt || new Date().toISOString(), sentAt: status === "a_envoyer" ? null : (extra.sentAt || old?.sentAt || null),
-      ...(extra.via ? { via: extra.via } : {}) });
+      ...(extra.via ? { via: extra.via } : {}), ...(S.linkTx && !old ? { txId: S.linkTx } : {}) });
     // le formulaire continue sur ce ticket (photo déjà enregistrée)
     S.editing = saved; S.photoBlob = null; S.previewBlob = null; S.photoType = saved.receipt?.type || "";
     S.fEmp = employerId; S.fStatus = status; syncSeg();
@@ -596,6 +597,27 @@ $("syncChip").addEventListener("click", openSettings);
 $("btnCloseSet").addEventListener("click", () => showOnly(null));
 $("statusSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; S.fStatus = b.dataset.s; syncSeg(); render(); });
 $("empFilter").addEventListener("change", e => { S.fEmp = e.target.value; render(); });
+
+/* ---------- dans Régie : petite interface pour l'appli qui m'accueille ---------- */
+const isEmbed = window.top !== window.self;
+if (isEmbed) {
+  window.fraisAPI = {
+    expenses: () => store.expenses(),
+    employers: () => store.employers(),
+    save: x => store.saveExpense(x),
+    onChange: f => store.onChange(f),
+    // nouveau ticket pré-rempli à partir d'une opération du relevé, lié à elle
+    openNew: (p = {}) => {
+      openForm(null);
+      if (p.date) $("fDate").value = p.date;
+      if (p.amount) $("fAmount").value = String(p.amount).replace(".", ",");
+      if (p.merchant) $("fMerchant").value = p.merchant;
+      S.linkTx = p.txId || null;
+    },
+    open: id => { const x = store.expenses().find(e => e.id === id); if (x) openForm(x); },
+  };
+  window.parent.postMessage({ type: "frais-ready" }, location.origin);
+}
 
 /* ---------- démarrage ---------- */
 let renderQueued = false;
