@@ -62,6 +62,7 @@ input[type=checkbox],input[type=radio]{width:auto;min-height:0;accent-color:var(
 .note{background:var(--accent-soft);color:var(--accent);border-radius:10px;padding:10px 12px;font-size:.92rem}
 .money{white-space:nowrap}
 .pos{color:var(--go)}
+.money.due{color:var(--mid);font-weight:700}
 
 .sync{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:.8rem;color:var(--muted);background:none;border:0;padding:2px 0;cursor:pointer}
 .sync .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
