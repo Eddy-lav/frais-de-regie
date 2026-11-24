@@ -198,6 +198,7 @@ function openDialog(html, onSubmit, extra) {
     const btn = e.submitter?.value;
     if (btn === "cancel") return;
     if (btn === "delete") { extra?.onDelete?.(); return; }
+    if (btn === "clear") { extra?.onClear?.(); return; }
     const r = onSubmit(new FormData(dlgForm));
     if (r === false) e.preventDefault();
   };
@@ -285,7 +286,7 @@ function preview(parsed) {
   box.hidden = false;
   box.innerHTML = `
     <h2>${plan.add.length ? `${plan.add.length} nouvelle${plan.add.length > 1 ? "s" : ""} opération${plan.add.length > 1 ? "s" : ""}` : "Rien de nouveau"}</h2>
-    <p class="muted">Fichier ${parsed.format} du ${esc(dShort(dates[0]))} au ${esc(dShort(dates.at(-1)))}.${plan.dup ? ` ${plan.dup} déjà importée${plan.dup > 1 ? "s" : ""}, ignorée${plan.dup > 1 ? "s" : ""}.` : ""}${plan.replaced.length ? ` ${plan.replaced.length} saisie${plan.replaced.length > 1 ? "s" : ""} à la main remplacée${plan.replaced.length > 1 ? "s" : ""} par la banque.` : ""}</p>
+    <p class="muted">Fichier ${parsed.format} du ${esc(dShort(dates[0]))} au ${esc(dShort(dates.at(-1)))}.${plan.dup ? ` ${plan.dup} en double ou déjà importée${plan.dup > 1 ? "s" : ""}, ignorée${plan.dup > 1 ? "s" : ""}.` : ""}${plan.replaced.length ? ` ${plan.replaced.length} saisie${plan.replaced.length > 1 ? "s" : ""} à la main remplacée${plan.replaced.length > 1 ? "s" : ""} par la banque.` : ""}</p>
     ${plan.add.length ? `<table class="prev"><tbody>${plan.add.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8).map(t =>
       `<tr><td>${esc(dShort(t.date))}</td><td>${esc(t.label)}<br><span class="muted">${esc(L.CAT[t.cat]?.name)}</span></td><td class="${t.amount > 0 ? "pos" : ""}">${signed(t.amount)}</td></tr>`).join("")}</tbody></table>
       ${plan.add.length > 8 ? `<p class="muted">… et ${plan.add.length - 8} autres. Tu pourras corriger les catégories dans Opérations.</p>` : ""}` : ""}
@@ -389,6 +390,7 @@ function editAccount(acc) {
     </div>
     <label class="check"><input type="checkbox" name="main" ${a.main ? "checked" : ""}> Compte principal : c'est sur lui que je calcule ce qu'il te reste</label>
     <label class="check"><input type="checkbox" name="matelas" ${a.matelas ? "checked" : ""}> Épargne de secours (dispo tout de suite si les contrats s'arrêtent)</label>
+    ${nTx ? `<div class="block stack"><p class="muted">${nTx} opérations importées. En cas d'import raté (doublons…), efface-les puis réimporte le relevé.</p><button class="btn ghost" value="clear" formnovalidate style="align-self:flex-start">Effacer les opérations de ce compte</button></div>` : ""}
     ${dlgButtons(isNew ? "" : "Supprimer le compte")}`,
   fd => {
     const v = { ...a, name: fd.get("name").trim(), kind: fd.get("kind"), main: !!fd.get("main"), matelas: !!fd.get("matelas") };
@@ -398,6 +400,12 @@ function editAccount(acc) {
     if (v.main) { const others = S.list("accounts").filter(x => x.main && x.id !== a.id).map(x => ({ ...x, main: false })); if (others.length) S.save("accounts", others); }
     S.save("accounts", v);
   }, {
+    onClear: () => {
+      if (!confirm(`Effacer les ${nTx} opérations de « ${a.name} » ? Tu pourras réimporter le relevé ensuite.`)) return;
+      S.remove("txs", txs.filter(t => t.accountId === a.id));
+      S.save("accounts", { ...a, ref: null });
+      toast("Opérations effacées. Réimporte le relevé.");
+    },
     onDelete: () => {
       if (!confirm(nTx ? `Supprimer « ${a.name} » et ses ${nTx} opérations ?` : `Supprimer « ${a.name} » ?`)) return;
       S.remove("txs", txs.filter(t => t.accountId === a.id));
