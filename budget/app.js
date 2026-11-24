@@ -142,6 +142,17 @@ function renderMois() {
     ${incKnown.length ? `<p class="muted">En moyenne ${eur0(incAvg)} par mois sur ${incKnown.length} mois importé${incKnown.length > 1 ? "s" : ""}.</p>` : ""}
   </section>
 
+  ${s.pots.map(p => `<section class="card stack">
+    <h2>${esc(p.acc.name)} : avances et congés</h2>
+    <div class="lines">
+      <div class="line"><span>Avance à rembourser</span><span class="money${p.debt > 0 ? " due" : " pos"}">${eur(p.debt)}</span>
+        <span class="sub">${p.debt > 0 ? `Ton compte perso doit cette somme au ${esc(p.acc.name)}. Chaque versement vers le ${esc(p.acc.name)} la rembourse en premier.` : "Rien à rembourser : les versements partent en épargne."}</span></div>
+      <div class="line"><span>Congés spectacles disponibles</span><span class="money">${eur(p.conges)}</span><span class="sub">Réservés aux vacances, pas comptés dans l'épargne de secours.</span></div>
+      ${p.balance != null ? `<div class="line"><span>Épargne libre</span><span class="money">${eur(p.balance - Math.max(0, p.conges))}</span></div>` : ""}
+    </div>
+    ${p.debt > 0 && p.conges > 0 ? `<button class="btn" type="button" data-cover="${p.acc.id}">Couvrir l'avance avec les congés (${eur(Math.min(p.debt, p.conges))})</button>` : ""}
+  </section>`).join("")}
+
   <section class="card stack">
     <h2>Si les contrats s'arrêtent</h2>
     ${!sav.length ? `<p class="muted">Coche « épargne de secours » sur tes livrets dans Comptes.</p>`
@@ -156,6 +167,13 @@ function renderMois() {
     opsMonth = s.month; opsFilter.cat = b.dataset.cat; opsFilter.acc = s.main.id; opsFilter.q = ""; $("fSearch").value = ""; show("ops");
   };
   for (const b of el.querySelectorAll("[data-tx]")) b.onclick = () => editTx(S.list("txs").find(t => t.id === b.dataset.tx));
+  for (const b of el.querySelectorAll("[data-cover]")) b.onclick = () => {
+    if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Appuie encore pour confirmer"; return; }
+    const a = S.list("accounts").find(x => x.id === b.dataset.cover), p = L.potsOf(a, S.list("txs"));
+    const amount = Math.min(p.debt, p.conges);
+    S.save("accounts", { ...a, pots: { ...a.pots, moves: [...(a.pots.moves || []), { date: L.todayStr(), amount }] } });
+    toast(`${eur(amount)} de congés utilisés pour rembourser l'avance.`);
+  };
 }
 
 /* ---------- Opérations ---------- */
@@ -236,6 +254,7 @@ function editTx(tx) {
       <div class="field"><label for="eCat">Catégorie</label><select id="eCat" name="cat">${catOptions(t.cat)}</select></div>
       <div class="field"><label for="eAcc">Compte</label><select id="eAcc" name="acc" ${t.manual ? "" : "disabled"}>${accs.map(a => `<option value="${a.id}"${a.id === t.accountId ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>
     </div>
+    ${S.list("accounts").find(a => a.id === t.accountId)?.pots ? `<div class="field"><label for="ePot">Enveloppe</label><select id="ePot" name="pot"><option value="">Automatique : ${esc(L.POTS[L.autoPot(t)])}</option>${Object.entries(L.POTS).map(([k, v]) => `<option value="${k}"${t.pot === k ? " selected" : ""}>${v}</option>`).join("")}</select></div>` : ""}
     ${!t.manual && key ? `<label class="check"><input type="checkbox" name="rule" checked> Ranger aussi les autres opérations « ${esc(key)} » dans cette catégorie, et les prochaines</label>` : ""}
     ${dlgButtons(isNew ? "" : "Supprimer")}`,
   fd => {
@@ -245,7 +264,8 @@ function editTx(tx) {
       if (!amt) { $("eAmt").setCustomValidity("Montant ?"); $("eAmt").reportValidity(); $("eAmt").setCustomValidity(""); return false; }
       S.save("txs", { ...t, date: fd.get("date"), amount: fd.get("sign") === "+" ? amt : -amt, label: fd.get("label").trim(), cat, catManual: true, accountId: fd.get("acc"), createdAt: t.createdAt || new Date().toISOString() });
     } else {
-      S.save("txs", { ...t, cat, catManual: cat !== t.cat ? true : t.catManual, note: fd.get("label").trim() });
+      const pot = fd.has("pot") ? fd.get("pot") || undefined : t.pot;
+      S.save("txs", { ...t, cat, catManual: cat !== t.cat ? true : t.catManual, note: fd.get("label").trim(), pot });
       if (fd.get("rule") && key) applyRule(key, cat, t.id);
     }
     toast(isNew ? "Opération ajoutée." : "Enregistré.");
@@ -400,16 +420,31 @@ function editAccount(acc) {
     </div>
     <label class="check"><input type="checkbox" name="main" ${a.main ? "checked" : ""}> Compte principal : c'est sur lui que je calcule ce qu'il te reste</label>
     <label class="check"><input type="checkbox" name="matelas" ${a.matelas ? "checked" : ""}> Épargne de secours (dispo tout de suite si les contrats s'arrêtent)</label>
+    ${a.kind === "epargne" ? `<div class="block stack">
+      <label class="check"><input type="checkbox" name="pots" id="aPots" ${a.pots ? "checked" : ""}> Suivre les avances au compte courant et les congés spectacles sur ce livret</label>
+      <div class="grid2" id="aPotsFields" ${a.pots ? "" : "hidden"}>
+        <div class="field"><label for="pStart">Point de départ</label><input id="pStart" name="pStart" type="date" value="${a.pots?.start || L.todayStr()}"></div>
+        <div class="field"><label for="pDebt">Avance due ce jour-là (€)</label><input id="pDebt" name="pDebt" inputmode="decimal" value="${String(a.pots?.debt ?? 0).replace(".", ",")}"></div>
+        <div class="field"><label for="pConges">Congés dispo ce jour-là (€)</label><input id="pConges" name="pConges" inputmode="decimal" value="${String(a.pots?.conges ?? 0).replace(".", ",")}"></div>
+      </div>
+      <p class="muted">Ensuite, chaque virement est rangé tout seul d'après son motif : « avance » ou « remboursement avance », « congés » ou « vacances », sinon épargne. Un versement rembourse l'avance en premier. Tu peux changer l'enveloppe d'une opération dans sa fiche.</p>
+    </div>` : ""}
     ${nTx ? `<div class="block stack"><p class="muted">${nTx} opérations importées. En cas d'import raté (doublons…), efface-les puis réimporte le relevé.</p><button type="button" class="btn danger" data-act="clear" data-confirm="Appuie encore pour effacer les ${nTx} opérations" style="align-self:flex-start">Effacer les opérations de ce compte</button></div>` : ""}
     ${dlgButtons(isNew ? "" : "Supprimer le compte")}`,
   fd => {
     const v = { ...a, name: fd.get("name").trim(), kind: fd.get("kind"), main: !!fd.get("main"), matelas: !!fd.get("matelas") };
+    if (fd.get("pots")) {
+      const start = fd.get("pStart") || L.todayStr(), debt = num(fd.get("pDebt")) || 0, conges = num(fd.get("pConges")) || 0;
+      const same = a.pots && a.pots.start === start && a.pots.debt === debt && a.pots.conges === conges;
+      v.pots = same ? a.pots : { start, debt, conges, moves: [] };
+    } else if (a.kind === "epargne") v.pots = null;
     const b = num(fd.get("bal"));
     const changed = !isNaN(b) && (bal == null || Math.abs(b - (a.kind === "credit" ? Math.abs(bal) : bal)) > 0.004);
     if (changed) v.ref = { amount: v.kind === "credit" ? Math.abs(b) : b, date: fd.get("date") || L.todayStr(), at: new Date().toISOString() };
     if (v.main) { const others = S.list("accounts").filter(x => x.main && x.id !== a.id).map(x => ({ ...x, main: false })); if (others.length) S.save("accounts", others); }
     S.save("accounts", v);
   }, {
+    onOpen: () => { const c = $("aPots"); if (c) c.onchange = () => { $("aPotsFields").hidden = !c.checked; }; },
     onClear: () => {
       S.remove("txs", txs.filter(t => t.accountId === a.id));
       S.save("accounts", { ...a, ref: null });

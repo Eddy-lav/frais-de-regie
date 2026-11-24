@@ -302,6 +302,34 @@ export const prettyName = label => {
 };
 
 /* ---------- le chiffre du mois ---------- */
+/* ---------- enveloppes d'un livret : avances au compte courant et congés spectacles ---------- */
+// account.pots = { start: "AAAA-MM-JJ", debt: avance due au départ, conges: congés dispo au départ, moves: [{ date, amount }] }
+// moves : congés utilisés pour couvrir l'avance (baisse les deux).
+export const POTS = { avance: "Avance ou remboursement", conges: "Congés spectacles", epargne: "Épargne" };
+export function autoPot(t) {
+  const s = " " + normLabel(t.label + " " + (t.detail || ""));
+  if (/ AVANC| REMBOURSEMENT AVANC/.test(s)) return "avance";
+  if (/ CONGES| VACANCES/.test(s)) return "conges";
+  return "epargne";
+}
+export function potsOf(acc, txs) {
+  const p = acc.pots;
+  if (!p) return null;
+  let debt = Number(p.debt) || 0, conges = Number(p.conges) || 0, repaid = 0, taken = 0;
+  const events = txs.filter(t => t.accountId === acc.id && t.date > p.start).map(t => ({ date: t.date, t }))
+    .concat((p.moves || []).filter(m => m.date >= p.start).map(m => ({ date: m.date, move: m })))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  for (const e of events) {
+    if (e.move) { const x = Math.max(0, Math.min(Number(e.move.amount) || 0, conges, debt)); conges -= x; debt -= x; continue; }
+    const t = e.t, pot = t.pot || autoPot(t);
+    if (pot === "avance") { if (t.amount < 0) { debt -= t.amount; taken -= t.amount; } else { const r = Math.min(debt, t.amount); debt -= r; repaid += r; } }
+    else if (pot === "conges") conges += t.amount;
+    else if (t.amount > 0 && debt > 0) { const r = Math.min(debt, t.amount); debt -= r; repaid += r; } // un versement rembourse d'abord l'avance
+  }
+  const r2 = n => Math.round(n * 100) / 100;
+  return { debt: r2(Math.max(0, debt)), conges: r2(conges), repaid: r2(repaid), taken: r2(taken) };
+}
+
 export function monthSummary(data, now = new Date()) {
   const { accounts, txs, charges, settings } = data;
   const today = todayStr(now), month = ym(today);
@@ -352,7 +380,9 @@ export function monthSummary(data, now = new Date()) {
   // matelas : épargne disponible / ce qui sort en moyenne par mois
   const avgOut = prev.length ? prev.reduce((s, m) => s - mtx.filter(t => ym(t.date) === m && catType(t.cat) === "dep").reduce((a, t) => a + t.amount, 0), 0) / prev.length : null;
   res.avgOut = avgOut;
-  res.savings = accounts.filter(a => a.matelas).reduce((s, a) => s + (balanceOf(a, txs) || 0), 0);
+  // l'argent des congés spectacles est réservé aux vacances : il ne compte pas comme épargne de secours
+  res.savings = accounts.filter(a => a.matelas).reduce((s, a) => s + (balanceOf(a, txs) || 0) - Math.max(0, potsOf(a, txs)?.conges || 0), 0);
+  res.pots = accounts.filter(a => a.pots).map(a => ({ acc: a, ...potsOf(a, txs), balance: balanceOf(a, txs) }));
   res.months = avgOut ? res.savings / avgOut : null;
   return res;
 }
