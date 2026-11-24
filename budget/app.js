@@ -66,7 +66,7 @@ function renderMois() {
   const el = $("tab-mois");
   if (!s.main || s.balance == null) {
     const hasTx = s.main && d.txs.some(t => t.accountId === s.main.id);
-    el.innerHTML = `<div class="card stack">
+    el.innerHTML = `${S.isConnected() ? "" : `<p class="note">Tes données ne sont que sur cet appareil. <button class="linkbtn" type="button" data-go="comptes">Connecte Dropbox</button> pour retrouver celles de ton téléphone ou de ton ordi.</p>`}<div class="card stack">
       <h2>Combien il te reste ce mois-ci</h2>
       <p class="muted">Pour le calculer, il me faut ce qui est sur ton compte perso et ce qui va encore en partir avant la fin du mois.</p>
       <ol class="steps">
@@ -121,6 +121,7 @@ function renderMois() {
   const savMissing = sav.filter(a => L.balanceOf(a, d.txs) == null);
 
   el.innerHTML = `
+  ${S.isConnected() ? "" : `<p class="note">Tes données ne sont que sur cet appareil. <button class="linkbtn" type="button" data-go="comptes">Connecte Dropbox</button> pour retrouver celles de ton téléphone ou de ton ordi.</p>`}
   <section class="card hero" aria-labelledby="heroLead">
     <p class="lead" id="heroLead">${neg ? "Ce mois-ci, il manque" : "Tu peux encore dépenser"}</p>
     <p class="big${neg ? " neg" : ""}">${eur0(Math.abs(s.left))}</p>
@@ -413,6 +414,7 @@ function renderComptes() {
   $("dbxText").textContent = con ? "Connecté. Tes données sont rangées dans Dropbox, dossier Applications › Frais de regie Eddy › budget, et partagées entre ton ordi et ton téléphone."
     : "Pas connecté sur cet appareil. Si Frais de régie est déjà connecté ici, ouvre-le une fois puis reviens. Sinon, ouvre Dropbox, autorise l'appli, puis colle le code affiché.";
   $("dbxConnect").hidden = con;
+  if (!con) $("settingsFold").open = true;
 }
 $("sCushion").onchange = e => { const v = num(e.target.value); if (!isNaN(v)) S.saveSettings({ cushion: v }); };
 $("sBig").onchange = e => { const v = num(e.target.value); if (!isNaN(v)) S.saveSettings({ bigSpend: v }); };
@@ -423,6 +425,13 @@ $("btnDbxOk").onclick = async () => {
   $("dbxErr").textContent = "";
   try { await S.finishWithCode($("dbxCode").value); $("dbxCode").value = ""; toast("Dropbox connecté."); }
   catch (e) { $("dbxErr").textContent = e.code === "no_pkce" ? "Clique d'abord sur « Ouvrir Dropbox »." : "Le code n'a pas marché. Recommence depuis « Ouvrir Dropbox »."; }
+};
+$("btnRestore").onclick = () => $("restoreFile").click();
+$("restoreFile").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  try { S.restoreData(JSON.parse(await f.text())); toast("Sauvegarde restaurée."); show("mois"); }
+  catch { toast("Ce fichier n'est pas une sauvegarde de Reste à vivre."); }
 };
 $("btnBackup").onclick = () => {
   const a = document.createElement("a");
@@ -536,7 +545,7 @@ function fixCats() {
 }
 async function boot() {
   if (S.isConnected()) await S.sync();
-  if (S.isEmpty()) S.save("accounts", L.defaultAccounts());
+  if (S.isEmpty()) S.seed("accounts", L.defaultAccounts());
   fixCats();
   render();
 }
