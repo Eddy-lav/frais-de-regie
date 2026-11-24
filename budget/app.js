@@ -14,6 +14,13 @@ const mShort = m => new Date(m + "-15T12:00:00").toLocaleDateString("fr-FR", { m
 const num = v => L.parseNumber(v);
 const KIND = { courant: "Compte courant", epargne: "Épargne", credit: "Crédit" };
 
+// Pastille de catégorie : une icône sur une teinte propre à la catégorie.
+const ICON = { courses: "🛒", logement: "🏠", joint: "🏡", factures: "💡", transport: "🚗", sante: "💊", enfants: "🧸", sorties: "🍽️", shopping: "🛍️", musique: "🎧", impots: "🏛️", banque: "🏦", especes: "💶", autre: "🧩", cachets: "🎚️", are: "📄", ventes: "💿", rembours: "↩️", rev_autre: "➕", epargne: "🐷", interne: "🔁" };
+const HUE = { courses: 140, logement: 28, joint: 18, factures: 48, transport: 205, sante: 350, enfants: 300, sorties: 12, shopping: 265, musique: 280, impots: 225, banque: 215, especes: 95, autre: 210, cachets: 150, are: 220, ventes: 290, rembours: 170, rev_autre: 160, epargne: 330, interne: 210 };
+const ico = cat => `<span class="ico" style="--h:${HUE[cat] ?? 210}" aria-hidden="true">${ICON[cat] || "•"}</span>`;
+const catName = cat => L.CAT[cat]?.name || "";
+const txSub = t => { const ty = L.catType(t.cat), n = ty === "int" || ty === "epa" ? L.transferNote(t) : ""; return catName(t.cat) + (n ? ` (${n})` : ""); };
+
 const data = () => ({ accounts: S.list("accounts"), txs: S.list("txs"), charges: S.list("charges"), rules: S.list("rules"), settings: S.settings() });
 const accName = id => S.list("accounts").find(a => a.id === id)?.name || "?";
 const mainAcc = () => { const a = S.list("accounts"); return a.find(x => x.main) || a.find(x => x.kind === "courant"); };
@@ -21,6 +28,12 @@ function catOptions(sel, sign) {
   const groups = [["Dépenses", "dep"], ["Rentrées", "rev"], ["Ni dépense ni rentrée", "epa,int"]];
   return groups.filter(([, t]) => !sign || t.includes(sign) || t.includes("epa"))
     .map(([g, t]) => `<optgroup label="${g}">` + L.CATS.filter(c => t.includes(c.type)).map(c => `<option value="${c.id}"${c.id === sel ? " selected" : ""}>${esc(c.name)}</option>`).join("") + "</optgroup>").join("");
+}
+
+function catChips(sel, sign) {
+  const groups = [["Dépenses", "dep"], ["Rentrées", "rev"], ["Ni dépense ni rentrée", "epa,int"]].filter(([, t]) => !sign || t.includes(sign) || t.includes("epa"));
+  return groups.map(([g, t]) => `<p class="chips-g">${g}</p><div class="chips-row">` + L.CATS.filter(c => t.includes(c.type)).map(c =>
+    `<label class="chip" style="--h:${HUE[c.id] ?? 210}"><input type="radio" name="cat" value="${c.id}"${c.id === sel ? " checked" : ""}><span>${ICON[c.id] || ""} ${esc(c.name)}</span></label>`).join("") + "</div>").join("");
 }
 
 /* ---------- onglets ---------- */
@@ -46,6 +59,7 @@ function render() {
 
 /* ---------- Ce mois ---------- */
 const SEG = 32;
+let catsOpen = false;
 function renderMois() {
   const d = data();
   const s = L.monthSummary(d);
@@ -82,10 +96,11 @@ function renderMois() {
   const lastTx = d.txs.filter(t => t.accountId === s.main.id && !t.manual).map(t => t.date).sort().pop();
   const stale = lastTx && (Date.parse(s.today) - Date.parse(lastTx)) / 864e5 > 6;
 
-  const catLines = s.cats.filter(c => c.now > 0 || c.avg).slice(0, 10).map(c => {
+  const shownCats = s.cats.filter(c => c.now > 0 || c.avg);
+  const catLines = shownCats.slice(0, catsOpen ? 12 : 5).map(c => {
     const max = Math.max(...s.cats.map(x => Math.max(x.now, x.avg || 0)), 1);
-    return `<button type="button" class="line tap${c.high ? " warn" : ""}" data-cat="${c.cat}" aria-label="Voir les opérations ${esc(L.CAT[c.cat]?.name || c.cat)}">
-      <span>${esc(L.CAT[c.cat]?.name || c.cat)}</span><span class="money">${eur0(c.now)}</span>
+    return `<button type="button" class="line tap withico${c.high ? " warn" : ""}" data-cat="${c.cat}" aria-label="Voir les opérations ${esc(catName(c.cat))}">
+      ${ico(c.cat)}<span>${esc(catName(c.cat) || c.cat)}</span><span class="money">${eur0(c.now)}</span>
       <div class="bar"><b style="width:${c.now / max * 100}%"></b>${c.avg ? `<s style="left:${c.avg / max * 100}%"></s>` : ""}</div>
       ${c.avg != null ? `<span class="sub">${!c.avg ? "Rien les mois précédents" : (c.high ? "Plus que d'habitude. " : "") + `D'habitude ${eur0(c.avg)} par mois`}</span>` : ""}
     </button>`;
@@ -114,12 +129,13 @@ function renderMois() {
       : `jusqu'au ${esc(end)}, soit environ <b>${eur0(s.perDay)} par jour</b> (${s.daysLeft} jour${s.daysLeft > 1 ? "s" : ""}).`}</p>
     <div class="meter on" role="img" aria-label="Solde ${eur0(s.balance)} : ${eur0(Math.max(s.left, 0))} libres, ${eur0(s.upcomingTotal)} de charges à venir, ${eur0(s.cushion)} de coussin">${segs}</div>
     <div class="legend"><span style="--c:var(--go)">Libre</span><span style="--c:var(--mid)">Charges à venir</span><span style="--c:color-mix(in srgb,var(--muted) 55%,transparent)">Coussin</span>${neg ? `<span style="--c:var(--hot)">Manque</span>` : ""}</div>
+    <details class="how"><summary>Comment c'est calculé</summary>
     <dl class="calc">
       <dt>Sur ${esc(s.main.name.toLowerCase().startsWith("compte") ? "le " + s.main.name.toLowerCase() : s.main.name)}</dt><dd class="money">${eur(s.balance)}</dd>
       <dt>Charges encore à venir</dt><dd class="money">− ${eur(s.upcomingTotal)}</dd>
       <dt>Coussin gardé de côté</dt><dd class="money">− ${eur(s.cushion)}</dd>
       <dt class="tot">${neg ? "Manque" : "Reste à dépenser"}</dt><dd class="money">${eur(s.left)}</dd>
-    </dl>
+    </dl></details>
     ${stale ? `<p class="note">Dernière opération importée le ${esc(dShort(lastTx))}. <button class="linkbtn" type="button" data-go="import">Importer le relevé</button> pour un chiffre à jour.</p>` : ""}
   </section>
 
@@ -128,12 +144,13 @@ function renderMois() {
 
   <section class="card stack">
     <div class="row between"><h2>${esc(mLong(s.month).replace(/^./, c => c.toUpperCase()))}</h2><button class="linkbtn" type="button" id="goOps">Voir les opérations</button></div>
-    <p class="muted">Dépensé ${eur0(s.spent)}, rentré ${eur0(s.income)}.${s.history ? ` Le trait noir montre ta moyenne des ${s.history} mois précédents.` : ""}</p>
+    <p class="muted">Dépensé ${eur0(s.spent)}, rentré ${eur0(s.income)}.${s.history ? ` Le trait montre ta moyenne des ${s.history} mois précédents.` : ""}</p>
     <div class="lines">${catLines || `<p class="muted">Rien encore ce mois-ci.</p>`}</div>
+    ${shownCats.length > 5 ? `<button class="btn ghost more" type="button" id="catsMore" aria-expanded="${catsOpen}">${catsOpen ? "Voir moins" : `Voir les ${shownCats.length} catégories`}</button>` : ""}
   </section>
 
-  ${s.big.length ? `<section class="card stack"><h2>Grosses dépenses du mois</h2><div class="lines">${s.big.map(t =>
-    `<button type="button" class="line tap" data-tx="${t.id}"><span>${esc(t.note || t.label)}</span><span class="money">${eur(-t.amount)}</span><span class="sub">${esc(dShort(t.date))}, ${esc(L.CAT[t.cat]?.name || "")}</span></button>`).join("")}</div></section>` : ""}
+  ${s.big.length ? `<section class="card stack"><h2>Grosses dépenses du mois</h2><div class="lines">${s.big.slice(0, 5).map(t =>
+    `<button type="button" class="line tap withico" data-tx="${t.id}">${ico(t.cat)}<span>${esc(L.displayName(t))}</span><span class="money">${eur(-t.amount)}</span><span class="sub">${esc(dShort(t.date))}, ${esc(txSub(t))}</span></button>`).join("")}</div></section>` : ""}
 
   <section class="card stack">
     <h2>Rentrées des 6 derniers mois</h2>
@@ -142,25 +159,22 @@ function renderMois() {
     ${incKnown.length ? `<p class="muted">En moyenne ${eur0(incAvg)} par mois sur ${incKnown.length} mois importé${incKnown.length > 1 ? "s" : ""}.</p>` : ""}
   </section>
 
-  ${s.pots.map(p => `<section class="card stack">
-    <h2>${esc(p.acc.name)} : avances et congés</h2>
-    <div class="lines">
-      <div class="line"><span>Avance à rembourser</span><span class="money${p.debt > 0 ? " due" : " pos"}">${eur(p.debt)}</span>
-        <span class="sub">${p.debt > 0 ? `Ton compte perso doit cette somme au ${esc(p.acc.name)}. Chaque versement vers le ${esc(p.acc.name)} la rembourse en premier.` : "Rien à rembourser : les versements partent en épargne."}</span></div>
-      <div class="line"><span>Congés spectacles disponibles</span><span class="money">${eur(p.conges)}</span><span class="sub">Réservés aux vacances, pas comptés dans l'épargne de secours.</span></div>
-      ${p.balance != null ? `<div class="line"><span>Épargne libre</span><span class="money">${eur(p.balance - Math.max(0, p.conges))}</span></div>` : ""}
-    </div>
-    ${p.debt > 0 && p.conges > 0 ? `<button class="btn" type="button" data-cover="${p.acc.id}">Couvrir l'avance avec les congés (${eur(Math.min(p.debt, p.conges))})</button>` : ""}
-  </section>`).join("")}
-
   <section class="card stack">
-    <h2>Si les contrats s'arrêtent</h2>
+    <h2>Épargne</h2>
     ${!sav.length ? `<p class="muted">Coche « épargne de secours » sur tes livrets dans Comptes.</p>`
       : savMissing.length ? `<p class="muted">Indique le solde de ${savMissing.map(a => esc(a.name)).join(" et ")} pour savoir combien de mois tu tiens sans rentrée.</p><button class="btn" type="button" data-go="comptes">Mettre à jour les soldes</button>`
-      : s.months == null ? `<p class="muted">Épargne de secours : ${eur0(s.savings)}. Il faut au moins un mois complet importé pour estimer combien de temps elle dure.</p>`
-      : `<p>Ton épargne de secours (${sav.map(a => esc(a.name)).join(" + ")}) : <b>${eur0(s.savings)}</b>, soit environ <b>${s.months.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} mois</b> de dépenses sans aucune rentrée.</p>
-         <p class="muted">Calculé sur ce qui sort en moyenne de ton compte perso : ${eur0(s.avgOut)} par mois. Les intermittents visent souvent 3 mois.</p>`}
+      : s.months == null ? `<p>Épargne de secours : <b>${eur0(s.savings)}</b>.</p>`
+      : `<p class="runway"><b>${s.months.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} mois</b> sans aucune rentrée</p>
+         <p class="muted">${eur0(s.savings)} d'épargne de secours (${sav.map(a => esc(a.name)).join(" + ")}), pour ${eur0(s.avgOut)} de sorties par mois en moyenne. Les intermittents visent souvent 3 mois.</p>`}
+    ${s.pots.map(p => `<div class="lines block">
+      <div class="line"><span>${esc(p.acc.name)} : avance à rembourser</span><span class="money${p.debt > 0 ? " due" : " pos"}">${eur(p.debt)}</span>
+        ${p.debt > 0 ? `<span class="sub">Le prochain versement vers le ${esc(p.acc.name)} la rembourse en premier.</span>` : ""}</div>
+      <div class="line"><span>Congés spectacles</span><span class="money">${eur(p.conges)}</span></div>
+      ${p.balance != null ? `<div class="line"><span>Épargne libre sur le ${esc(p.acc.name)}</span><span class="money">${eur(p.balance - Math.max(0, p.conges))}</span></div>` : ""}
+      ${p.debt > 0 && p.conges > 0 ? `<button class="btn" type="button" data-cover="${p.acc.id}">Couvrir l'avance avec les congés (${eur(Math.min(p.debt, p.conges))})</button>` : ""}
+    </div>`).join("")}
   </section>`;
+  $("catsMore")?.addEventListener("click", () => { catsOpen = !catsOpen; renderMois(); });
   $("goOps").onclick = () => { opsMonth = s.month; opsFilter.cat = ""; opsFilter.q = ""; $("fSearch").value = ""; show("ops"); };
   // une catégorie -> ses opérations du mois ; une grosse dépense -> sa fiche
   for (const b of el.querySelectorAll("[data-cat]")) b.onclick = () => {
@@ -183,7 +197,6 @@ $("mNext").onclick = () => { const [y, m] = opsMonth.split("-").map(Number); ops
 $("fAcc").onchange = e => { opsFilter.acc = e.target.value; renderOps(); };
 $("fCat").onchange = e => { opsFilter.cat = e.target.value; renderOps(); };
 $("fSearch").oninput = e => { opsFilter.q = e.target.value; renderOps(); };
-$("btnAddTx").onclick = () => editTx(null);
 
 function renderOps() {
   const accs = S.list("accounts").filter(a => a.kind !== "credit");
@@ -206,12 +219,23 @@ function renderOps() {
   $("opsList").innerHTML = [...days].map(([d, ts]) => `<div class="day"><h3>${esc(dLong(d))}</h3><div class="card">${ts.map(t => {
     const ty = L.catType(t.cat);
     return `<button type="button" class="op${ty === "int" || ty === "epa" ? " ignored" : ""}" data-id="${t.id}">
-      <span class="lab">${esc(t.note || t.label)}${t.manual ? `<span class="tag">à la main</span>` : ""}</span>
+      ${ico(t.cat)}<span class="lab">${esc(L.displayName(t))}${t.manual ? `<span class="tag">à la main</span>` : ""}</span>
       <span class="money${t.amount > 0 ? " pos" : ""}">${signed(t.amount)}</span>
-      <span class="cat">${esc(L.CAT[t.cat]?.name || "")}</span></button>`;
+      <span class="cat">${esc(txSub(t))}</span></button>`;
   }).join("")}</div></div>`).join("");
   for (const b of $("opsList").querySelectorAll(".op")) b.onclick = () => editTx(S.list("txs").find(t => t.id === b.dataset.id));
 }
+
+$("fab").onclick = () => openDialog(`
+  <h2>Ajouter</h2>
+  <button type="button" class="bigchoice" id="chAdd"><span class="ico" style="--h:210" aria-hidden="true">✍️</span><span><b>Ajouter une dépense</b><span class="muted">Une dépense ou une rentrée pas encore sur le relevé</span></span></button>
+  <button type="button" class="bigchoice" id="chImp"><span class="ico" style="--h:150" aria-hidden="true">📥</span><span><b>Importer un relevé</b><span class="muted">Fichier CSV ou OFX de la Banque Populaire</span></span></button>
+  <div class="row"><button type="button" class="btn ghost" data-act="cancel">Annuler</button></div>`, () => {}, {
+  onOpen: () => {
+    $("chAdd").onclick = () => { dlg.close(); setTimeout(() => editTx(null), 0); };
+    $("chImp").onclick = () => { dlg.close(); show("import"); };
+  },
+});
 
 /* ---------- fenêtre d'édition ---------- */
 const dlg = $("dlg"), dlgForm = $("dlgForm");
@@ -233,7 +257,7 @@ function openDialog(html, onSubmit, extra) {
   extra?.onOpen?.();
   dlg.showModal();
 }
-const dlgButtons = (del) => `<div class="row between">${del ? `<button type="button" class="btn danger" data-act="delete" data-confirm="Appuie encore pour confirmer">${del}</button>` : "<span></span>"}
+const dlgButtons = (del) => `<div class="row between dlgbar">${del ? `<button type="button" class="btn danger" data-act="delete" data-confirm="Appuie encore pour confirmer">${del}</button>` : "<span></span>"}
   <div class="row"><button type="button" class="btn ghost" data-act="cancel">Annuler</button><button type="submit" class="btn primary">Enregistrer</button></div></div>`;
 
 function editTx(tx) {
@@ -241,21 +265,21 @@ function editTx(tx) {
   const t = tx || { date: L.todayStr(), amount: 0, label: "", cat: "autre", accountId: opsFilter.acc || mainAcc()?.id, manual: true };
   const key = L.keyOf(t.label);
   const accs = S.list("accounts").filter(a => a.kind !== "credit");
+  const imported = !t.manual;
   openDialog(`
-    <h2>${isNew ? "Ajouter une opération" : "Opération"}</h2>
-    ${!isNew && !t.manual ? `<p class="muted">${esc(t.label)}${t.detail ? "<br>" + esc(t.detail) : ""}${t.bankCat ? `<br>Banque : ${esc(t.bankCat)}` : ""}</p>` : ""}
+    <div class="sheet-head">${imported ? ico(t.cat) : ""}<div><h2>${isNew ? "Ajouter une dépense" : esc(L.displayName(t))}</h2>
+      ${imported ? `<p class="sheet-amt${t.amount > 0 ? " pos" : ""}">${signed(t.amount)}</p><p class="muted">${esc(dLong(t.date))}, ${esc(accName(t.accountId))}</p>` : ""}</div></div>
+    ${imported ? `<details class="how"><summary>Libellé de la banque</summary><p class="muted">${esc(t.label)}${t.detail ? "<br>" + esc(t.detail) : ""}${t.bankCat ? `<br>Catégorie banque : ${esc(t.bankCat)}` : ""}</p></details>` : `
+    <div class="seg" role="radiogroup" aria-label="Sens"><label><input type="radio" name="sign" value="-" ${t.amount <= 0 ? "checked" : ""}><span>Dépense</span></label><label><input type="radio" name="sign" value="+" ${t.amount > 0 ? "checked" : ""}><span>Rentrée</span></label></div>
     <div class="grid2">
-      <div class="field"><label for="eDate">Date</label><input type="date" id="eDate" name="date" value="${t.date}" required ${t.manual ? "" : "disabled"}></div>
-      <div class="field"><label for="eAmt">Montant (€)</label><input id="eAmt" name="amount" inputmode="decimal" required value="${isNew ? "" : String(Math.abs(t.amount)).replace(".", ",")}" ${t.manual ? "" : "disabled"} placeholder="0,00"></div>
-    </div>
-    ${t.manual ? `<div class="row"><label class="check"><input type="radio" name="sign" value="-" ${t.amount <= 0 ? "checked" : ""}> Dépense</label><label class="check"><input type="radio" name="sign" value="+" ${t.amount > 0 ? "checked" : ""}> Rentrée</label></div>` : ""}
-    <div class="field"><label for="eLab">${t.manual ? "Libellé" : "Nom affiché"}</label><input id="eLab" name="label" value="${esc(t.manual ? t.label : t.note || "")}" placeholder="${esc(t.manual ? "Boulangerie, cadeau…" : t.label)}" ${t.manual ? "required" : ""}></div>
-    <div class="grid2">
-      <div class="field"><label for="eCat">Catégorie</label><select id="eCat" name="cat">${catOptions(t.cat)}</select></div>
-      <div class="field"><label for="eAcc">Compte</label><select id="eAcc" name="acc" ${t.manual ? "" : "disabled"}>${accs.map(a => `<option value="${a.id}"${a.id === t.accountId ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>
-    </div>
+      <div class="field"><label for="eAmt">Montant (€)</label><input id="eAmt" name="amount" inputmode="decimal" required value="${isNew ? "" : String(Math.abs(t.amount)).replace(".", ",")}" placeholder="0,00"></div>
+      <div class="field"><label for="eDate">Date</label><input type="date" id="eDate" name="date" value="${t.date}" required></div>
+    </div>`}
+    <div class="field"><label for="eLab">${imported ? "Nom affiché" : "Libellé"}</label><input id="eLab" name="label" value="${esc(imported ? t.note || "" : t.label)}" placeholder="${esc(imported ? L.displayName({ ...t, note: "" }) : "Boulangerie, cadeau…")}" ${imported ? "" : "required"}></div>
+    <fieldset class="chips"><legend>Catégorie</legend>${catChips(t.cat, imported ? (t.amount < 0 ? "dep" : "rev") : "")}</fieldset>
+    ${imported ? "" : `<div class="field"><label for="eAcc">Compte</label><select id="eAcc" name="acc">${accs.map(a => `<option value="${a.id}"${a.id === t.accountId ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>`}
     ${S.list("accounts").find(a => a.id === t.accountId)?.pots ? `<div class="field"><label for="ePot">Enveloppe</label><select id="ePot" name="pot"><option value="">Automatique : ${esc(L.POTS[L.autoPot(t)])}</option>${Object.entries(L.POTS).map(([k, v]) => `<option value="${k}"${t.pot === k ? " selected" : ""}>${v}</option>`).join("")}</select></div>` : ""}
-    ${!t.manual && key ? `<label class="check"><input type="checkbox" name="rule" checked> Ranger aussi les autres opérations « ${esc(key)} » dans cette catégorie, et les prochaines</label>` : ""}
+    ${imported && key ? `<label class="check"><input type="checkbox" name="rule" checked> Ranger aussi les autres opérations « ${esc(L.cleanLabel(t.label))} » dans cette catégorie, et les prochaines</label>` : ""}
     ${dlgButtons(isNew ? "" : "Supprimer")}`,
   fd => {
     const cat = fd.get("cat");
@@ -350,11 +374,13 @@ function renderSuggest(el) {
   const d = data();
   const sug = L.detectRecurring(d.txs, d.accounts, d.charges, d.settings.dismissed || []);
   if (!sug.length) { el.innerHTML = ""; return; }
-  el.innerHTML = `<div class="sug"><h3>Prélèvements qui reviennent chaque mois</h3>
+  const wasOpen = el.querySelector("details")?.open;
+  el.innerHTML = `<details class="sug"${el.id === "iSuggest" ? " open" : ""}><summary>${sug.length} prélèvement${sug.length > 1 ? "s reviennent" : " revient"} chaque mois. Les vérifier</summary>
     <p class="muted">Ajoute-les aux charges fixes pour qu'ils soient retirés de ce qu'il te reste tant qu'ils ne sont pas passés.</p>
     <div class="lines">${sug.slice(0, 12).map(g => `<div class="line"><span>${esc(g.name)}</span><span class="money">${eur(g.amount)}</span>
       <span class="sub">vers le ${g.day}, vu ${g.months} mois, ${esc(accName(g.accountId))}</span>
-      <div class="acts"><button class="btn" type="button" data-add="${esc(g.id)}">Ajouter</button><button class="btn ghost" type="button" data-skip="${esc(g.id)}">Pas une charge fixe</button></div></div>`).join("")}</div></div>`;
+      <div class="acts"><button class="btn" type="button" data-add="${esc(g.id)}">Ajouter</button><button class="btn ghost" type="button" data-skip="${esc(g.id)}">Pas une charge fixe</button></div></div>`).join("")}</div></details>`;
+  if (wasOpen) el.querySelector("details").open = true;
   for (const b of el.querySelectorAll("[data-add]")) b.onclick = () => {
     const g = sug.find(x => x.id === b.dataset.add);
     S.save("charges", { name: g.name, amount: g.amount, day: g.day, accountId: g.accountId, keyword: g.keyword });

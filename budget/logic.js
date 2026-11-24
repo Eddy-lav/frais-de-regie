@@ -321,6 +321,46 @@ export const prettyName = label => {
   return k.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase());
 };
 
+// Nom lisible d'une opération : « ANTHROPIC CLAUETD04 TR29 DUBL » -> « Anthropic », « PRLV SEPA FREE MOBILE » -> « Free Mobile ».
+const NOISE = new Set("CB CARTE PRLV SEPA VIR VIREMENT INST INSTANTANE ACHAT PAIEMENT FACTURE FACT SAS SARL SA SASU EURL SCI SNC AG GMBH LTD INC BV SRL WWW COM SUMUP ZETTLE".split(" "));
+const STOPW = new Set("FR FRA CA NL EU US UK GB IE BE CH LU PARIS MONTREAL DUBLIN IRELAND STOCKHOLM BERLIN LONDON LONDRES AMSTELVEEN OTTAWA BRUGG LUXEMBOURG".split(" "));
+const ACRO = new Set("SNCF EDF SFR RATP CAF CPAM URSSAF DGFIP BHV BNP LCL MAIF MACIF MMA GMF AXA ARE TGV SNCF BP IKEA H&M".split(" "));
+const BRANDS = { PAYPAL: "PayPal", AMAZON: "Amazon", APPLE: "Apple", GOOGLE: "Google", SPOTIFY: "Spotify", NETFLIX: "Netflix", UBER: "Uber", FREEBOX: "Freebox", IKEA: "Ikea", MCDONALDS: "McDonald's", BLABLACAR: "BlaBlaCar" };
+const SMALL = new Set(["DE", "DU", "DES", "LA", "LE", "LES", "ET", "AU", "AUX", "EN", "D", "L"]);
+export function cleanLabel(label) {
+  const raw = String(label || "").trim();
+  const words = deaccent(raw).toUpperCase().replace(/[^A-Z0-9&' ]+/g, " ").split(/\s+/).filter(Boolean);
+  const out = [];
+  for (const w of words) {
+    if (/\d/.test(w)) { if (out.length) break; else continue; } // une référence : la suite n'est plus le nom
+    if (out.length && STOPW.has(w)) break; // pays ou ville : la suite n'est plus le nom
+    if (NOISE.has(w) || (w.length === 1 && !out.length) || w === out[out.length - 1]) continue;
+    const glued = out.length && w.length > 4 && /^(.{3,})(FR|CA)$/.exec(w); // nom tronqué collé au pays : « WORKSPACFR »
+    if (glued) { out.push(glued[1]); break; }
+    out.push(w);
+    if (out.length === 4) break;
+  }
+  while (out.length > 1 && (SMALL.has(out[out.length - 1]) || out[out.length - 1].length === 1)) out.pop();
+  if (!out.length) return raw;
+  return out.map((w, i) => BRANDS[w] || (ACRO.has(w) ? w : SMALL.has(w) && i ? w.toLowerCase() : w.charAt(0) + w.slice(1).toLowerCase())).join(" ");
+}
+export function displayName(t) {
+  if (t.note) return t.note;
+  if (t.manual) return t.label;
+  if (t.cat === "joint" && t.amount < 0) return "Virement vers le compte joint";
+  if (t.cat === "banque" && /frais bancaires/i.test(t.bankCat || "")) {
+    const d = normLabel(t.detail || "");
+    return / COMMISSION INTERVENTION/.test(" " + d) ? "Commission de découvert" : / ETRANGER/.test(d) ? "Frais de paiement à l'étranger" : "Frais bancaires";
+  }
+  if (catType(t.cat) === "int" || catType(t.cat) === "epa") return t.amount < 0 ? "Virement envoyé" : "Virement reçu";
+  return cleanLabel(t.label);
+}
+// Motif d'un virement (« avances », « emprunt »…) tiré du détail de la banque.
+export function transferNote(t) {
+  const m = String(t.detail || "").split("·").pop().replace(/[-+]+\s*$/, "").trim();
+  return m && !/\d{6,}/.test(m) && m.length < 40 ? m.charAt(0).toUpperCase() + m.slice(1) : "";
+}
+
 /* ---------- le chiffre du mois ---------- */
 /* ---------- enveloppes d'un livret : avances au compte courant et congés spectacles ---------- */
 // account.pots = { start: "AAAA-MM-JJ", debt: avance due au départ, conges: congés dispo au départ, moves: [{ date, amount }] }
