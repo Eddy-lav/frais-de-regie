@@ -178,7 +178,8 @@ export function parseCsv(text) {
     const detailParts = [col.detail >= 0 ? r[col.detail] : "", heads.includes("informations complementaires") && col.detail !== heads.indexOf("informations complementaires") ? r[heads.indexOf("informations complementaires")] : ""];
     const detail = detailParts.map(x => (x || "").trim()).filter(x => x && x !== label).join(" · ");
     const bankCat = [col.cat >= 0 ? r[col.cat] : "", col.sub >= 0 ? r[col.sub] : ""].map(x => (x || "").trim()).filter(Boolean).join(" / ");
-    out.push({ date, amount: Math.round(amount * 100) / 100, label, detail, bankCat });
+    // raw : la ligne entière (avec la référence de la banque) pour repérer une ligne présente deux fois dans le fichier
+    out.push({ date, amount: Math.round(amount * 100) / 100, label, detail, bankCat, raw: r.map(x => x.trim()).join("|") });
   }
   return { txs: out, balance: null, format: "CSV" };
 }
@@ -210,10 +211,12 @@ export function planImport(parsed, accountId, existing, userRules) {
   const keys = new Set(existing.filter(t => t.accountId === accountId && t.key).map(t => t.key));
   const manual = existing.filter(t => t.accountId === accountId && t.manual);
   const usedManual = new Set();
-  const seen = new Map();
+  const seen = new Map(), rawSeen = new Set();
   const add = [], replaced = [];
   let dup = 0;
   for (const p of parsed) {
+    // même ligne deux fois dans le fichier (exports qui se chevauchent) : on n'en garde qu'une
+    if (p.raw) { if (rawSeen.has(p.raw)) { dup++; continue; } rawSeen.add(p.raw); }
     let key;
     if (p.fitid) key = accountId + "|" + p.fitid;
     else {
