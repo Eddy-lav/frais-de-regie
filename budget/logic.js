@@ -83,10 +83,13 @@ export function keyOf(label) {
 export const matchesKey = (label, key) => !!key && normLabel(label).includes(" " + key.toUpperCase());
 
 /* ---------- catégorie automatique ---------- */
+// Frais et commissions de la banque : leur détail cite l'achat concerné (CB IKEA, échéance du prêt…), il ne doit pas décider de la catégorie.
+export const isBankFee = t => t.amount < 0 && (/frais bancaires/.test(deaccent(t.bankCat || "").toLowerCase()) || /^\s*FRAIS BANCAIRES/.test(normLabel(t.label)));
 export function categorize(tx, userRules = []) {
   const label = normLabel(tx.label + " " + (tx.detail || ""));
   const sign = tx.amount < 0 ? "dep" : "rev";
   const fits = cat => { const t = catType(cat); return t === "epa" || t === "int" || t === sign; };
+  if (isBankFee(tx)) return "banque";
   for (const r of userRules) if (r.key && label.includes(" " + r.key + " ") && fits(r.cat)) return r.cat;
   for (const r of userRules) if (r.key && label.includes(" " + r.key) && fits(r.cat)) return r.cat;
   // Ce qui part vers le compte joint finance la maison : c'est une dépense pour le compte perso.
@@ -101,6 +104,23 @@ export function categorize(tx, userRules = []) {
     for (const [re, cat] of BANK_CATS) if (re.test(b) && fits(cat)) return cat;
   }
   return sign === "dep" ? "autre" : "rev_autre";
+}
+
+// Reclasse les opérations déjà importées (sauf celles corrigées à la main) :
+// - frais bancaires -> Banque ;
+// - virement interne d'un compte courant vers le compte joint (retrouvé en face, même montant, à 4 jours près) -> Part du compte joint.
+export const isJointAcc = a => a.kind === "courant" && (a.id === "acc-joint" || /joint|commun/i.test(a.name || ""));
+export function fixCats(txs, accounts) {
+  const out = new Map();
+  for (const t of txs) if (!t.manual && !t.catManual && t.cat !== "banque" && isBankFee(t)) out.set(t.id, { ...t, cat: "banque" });
+  const joint = new Set(accounts.filter(isJointAcc).map(a => a.id));
+  const courant = new Set(accounts.filter(a => a.kind === "courant" && !joint.has(a.id)).map(a => a.id));
+  const ins = txs.filter(t => joint.has(t.accountId) && t.amount > 0);
+  for (const t of txs) {
+    if (!courant.has(t.accountId) || t.amount >= 0 || t.manual || t.catManual || t.cat !== "interne") continue;
+    if (ins.some(i => Math.abs(i.amount + t.amount) < 0.005 && dayDiff(i.date, t.date) <= 4)) out.set(t.id, { ...t, cat: "joint" });
+  }
+  return [...out.values()];
 }
 
 /* ---------- lecture des relevés ---------- */

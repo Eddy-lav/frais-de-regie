@@ -339,6 +339,7 @@ function doImport() {
     const acc = S.list("accounts").find(a => a.id === accId);
     S.save("accounts", { ...acc, ref: { amount: bal, date: $("iBalDate").value || L.todayStr(), at: new Date().toISOString() } });
   }
+  fixCats();
   pendingImport = null; $("iFile").value = "";
   $("iPreview").innerHTML = `<h2>Import terminé</h2><p class="muted">${plan.add.length} opération${plan.add.length > 1 ? "s" : ""} ajoutée${plan.add.length > 1 ? "s" : ""}.</p><div class="row"><button class="btn primary" type="button" data-go="mois">Voir ce qu'il me reste</button></div>`;
   renderSuggest($("iSuggest"));
@@ -503,9 +504,14 @@ S.onChange(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => 
 dlg.addEventListener("close", () => render());
 
 /* ---------- démarrage ---------- */
+function fixCats() {
+  const upd = L.fixCats(S.list("txs"), S.list("accounts"));
+  if (upd.length) S.save("txs", upd);
+}
 async function boot() {
   if (S.isConnected()) await S.sync();
   if (S.isEmpty()) S.save("accounts", L.defaultAccounts());
+  fixCats();
   render();
 }
 boot();
