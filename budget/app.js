@@ -195,18 +195,23 @@ const dlg = $("dlg"), dlgForm = $("dlgForm");
 function openDialog(html, onSubmit, extra) {
   dlgForm.innerHTML = html;
   dlgForm.onsubmit = e => {
-    const btn = e.submitter?.value;
-    if (btn === "cancel") return;
-    if (btn === "delete") { extra?.onDelete?.(); return; }
-    if (btn === "clear") { extra?.onClear?.(); return; }
     const r = onSubmit(new FormData(dlgForm));
     if (r === false) e.preventDefault();
+  };
+  // Boutons secondaires : gérés au clic (sans fenêtre de confirmation du navigateur, peu fiable dans une appli installée).
+  // Une action irréversible demande un 2e appui : le bouton change de texte pour confirmer.
+  for (const b of dlgForm.querySelectorAll("button[data-act]")) b.onclick = () => {
+    const act = b.dataset.act;
+    if (act === "cancel") { dlg.close(); return; }
+    if (b.dataset.confirm && b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = b.dataset.confirm; return; }
+    dlg.close();
+    (act === "delete" ? extra?.onDelete : extra?.onClear)?.();
   };
   extra?.onOpen?.();
   dlg.showModal();
 }
-const dlgButtons = (del) => `<div class="row between">${del ? `<button class="btn danger" value="delete" formnovalidate>${del}</button>` : "<span></span>"}
-  <div class="row"><button class="btn ghost" value="cancel" formnovalidate>Annuler</button><button class="btn primary" value="ok">Enregistrer</button></div></div>`;
+const dlgButtons = (del) => `<div class="row between">${del ? `<button type="button" class="btn danger" data-act="delete" data-confirm="Appuie encore pour confirmer">${del}</button>` : "<span></span>"}
+  <div class="row"><button type="button" class="btn ghost" data-act="cancel">Annuler</button><button type="submit" class="btn primary">Enregistrer</button></div></div>`;
 
 function editTx(tx) {
   const isNew = !tx;
@@ -240,7 +245,7 @@ function editTx(tx) {
     }
     toast(isNew ? "Opération ajoutée." : "Enregistré.");
   }, {
-    onDelete: () => { if (confirm("Supprimer cette opération ?")) { S.remove("txs", t); toast("Supprimée."); } },
+    onDelete: () => { S.remove("txs", t); toast("Supprimée."); },
   });
 }
 function applyRule(key, cat, exceptId) {
@@ -390,7 +395,7 @@ function editAccount(acc) {
     </div>
     <label class="check"><input type="checkbox" name="main" ${a.main ? "checked" : ""}> Compte principal : c'est sur lui que je calcule ce qu'il te reste</label>
     <label class="check"><input type="checkbox" name="matelas" ${a.matelas ? "checked" : ""}> Épargne de secours (dispo tout de suite si les contrats s'arrêtent)</label>
-    ${nTx ? `<div class="block stack"><p class="muted">${nTx} opérations importées. En cas d'import raté (doublons…), efface-les puis réimporte le relevé.</p><button class="btn ghost" value="clear" formnovalidate style="align-self:flex-start">Effacer les opérations de ce compte</button></div>` : ""}
+    ${nTx ? `<div class="block stack"><p class="muted">${nTx} opérations importées. En cas d'import raté (doublons…), efface-les puis réimporte le relevé.</p><button type="button" class="btn danger" data-act="clear" data-confirm="Appuie encore pour effacer les ${nTx} opérations" style="align-self:flex-start">Effacer les opérations de ce compte</button></div>` : ""}
     ${dlgButtons(isNew ? "" : "Supprimer le compte")}`,
   fd => {
     const v = { ...a, name: fd.get("name").trim(), kind: fd.get("kind"), main: !!fd.get("main"), matelas: !!fd.get("matelas") };
@@ -401,13 +406,11 @@ function editAccount(acc) {
     S.save("accounts", v);
   }, {
     onClear: () => {
-      if (!confirm(`Effacer les ${nTx} opérations de « ${a.name} » ? Tu pourras réimporter le relevé ensuite.`)) return;
       S.remove("txs", txs.filter(t => t.accountId === a.id));
       S.save("accounts", { ...a, ref: null });
       toast("Opérations effacées. Réimporte le relevé.");
     },
     onDelete: () => {
-      if (!confirm(nTx ? `Supprimer « ${a.name} » et ses ${nTx} opérations ?` : `Supprimer « ${a.name} » ?`)) return;
       S.remove("txs", txs.filter(t => t.accountId === a.id));
       S.remove("charges", S.list("charges").filter(c => c.accountId === a.id));
       S.remove("accounts", a);
