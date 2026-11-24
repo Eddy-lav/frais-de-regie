@@ -49,7 +49,7 @@ export const hasAppKey = () => !!CONFIG.dropboxAppKey;
 export const isConnected = () => !!LS.get(AUTH, null)?.refresh;
 // Sur iPhone, une appli installée sur l'écran d'accueil ne revient pas toujours d'une redirection :
 // on passe alors par un code à copier-coller.
-export const useCodeFlow = () => !!navigator.standalone;
+export const useCodeFlow = () => !!navigator.standalone || window.top !== window.self; // dans Régie : Dropbox refuse de s'afficher dans un cadre
 
 async function authUrl(withRedirect) {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));

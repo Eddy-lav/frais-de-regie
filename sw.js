@@ -1,7 +1,7 @@
 // Hors ligne + mises à jour.
 // Fichiers de l'appli : réseau d'abord (toujours la dernière version quand on a du réseau), sinon la copie en cache.
 // Polices Google : cache d'abord.
-const CACHE = "frais-v2";
+const CACHE = "frais-v3";
 const SHELL = ["./", "index.html", "style.css", "app.js", "store.js", "readers.js", "config.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "lib/jspdf-2.5.1.umd.min.js", "lib/jszip-3.10.1.min.js", "lib/pdf-3.11.174.min.js", "lib/pdf.worker-3.11.174.min.js"];
 const CDN = /^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)\//;
 

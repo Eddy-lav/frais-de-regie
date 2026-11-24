@@ -36,6 +36,36 @@ function catChips(sel, sign) {
     `<label class="chip" style="--h:${HUE[c.id] ?? 210}"><input type="radio" name="cat" value="${c.id}"${c.id === sel ? " checked" : ""}><span>${ICON[c.id] || ""} ${esc(c.name)}</span></label>`).join("") + "</div>").join("");
 }
 
+/* ---------- Frais pro : l'appli Frais de régie dans un cadre ---------- */
+const frame = $("fraisFrame");
+const fapi = () => { try { return frame.contentWindow?.fraisAPI || null; } catch { return null; } };
+function fraisData() {
+  const a = fapi();
+  if (a) return { exp: a.expenses(), emps: a.employers() };
+  try {
+    const d = JSON.parse(localStorage.getItem("frais_state") || "{}").data || {};
+    return { exp: (d.expenses || []).filter(x => !x.deleted), emps: (d.employers || []).filter(x => !x.deleted) };
+  } catch { return { exp: [], emps: [] }; }
+}
+const empNameOf = (fr, id) => fr.emps.find(e => e.id === id)?.name || "Sans employeur";
+const dayDiff = (a, b) => Math.abs((Date.parse(a) - Date.parse(b)) / 864e5);
+const needFrais = () => { toast("Les frais pro se chargent. Réessaie dans un instant."); return null; };
+// le cadre occupe l'écran entre l'en-tête et la barre d'onglets
+function placeFrame() {
+  if (tab !== "frais") return;
+  const tabs = document.querySelector(".tabs"), sec = $("tab-frais");
+  const bottomBar = getComputedStyle(tabs).position === "fixed";
+  const top = bottomBar ? document.querySelector(".top").getBoundingClientRect().bottom + 8 : tabs.getBoundingClientRect().bottom + 12;
+  sec.style.setProperty("--fr-top", Math.max(0, top) + "px");
+  sec.style.setProperty("--fr-bottom", (bottomBar ? tabs.offsetHeight : 0) + "px");
+}
+addEventListener("resize", placeFrame);
+addEventListener("message", e => {
+  if (e.origin !== location.origin || e.data?.type !== "frais-ready") return;
+  fapi()?.onChange(() => { if (tab !== "frais") queueRender(); });
+  queueRender();
+});
+
 /* ---------- onglets ---------- */
 let tab = "mois";
 let opsMonth = L.ym(L.todayStr());
@@ -43,8 +73,12 @@ function show(t) {
   tab = t;
   for (const b of document.querySelectorAll(".tabs button")) { if (b.dataset.tab === t) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); }
   for (const s of document.querySelectorAll(".tab")) s.hidden = s.id !== "tab-" + t;
+  $("fab").hidden = t === "frais";
+  document.body.classList.toggle("on-frais", t === "frais");
+  placeFrame();
   render();
   scrollTo({ top: 0 });
+  if (location.hash !== "#" + t) history.replaceState(null, "", t === "mois" ? location.pathname : "#" + t);
 }
 for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => show(b.dataset.tab);
 document.addEventListener("click", e => { const g = e.target.closest("[data-go]"); if (g) show(g.dataset.go); });
@@ -55,6 +89,29 @@ function render() {
   if (tab === "ops") renderOps();
   if (tab === "import") renderImportForm();
   if (tab === "comptes") renderComptes();
+}
+
+/* ---------- remboursements de frais repérés sur le relevé ---------- */
+// Un virement reçu qui vaut exactement un ticket, les tickets envoyés d'un employeur, ou tous ses tickets pas remboursés.
+function reimbSuggestions(d, fr) {
+  const done = new Set(d.settings.reimbDone || []);
+  const cour = new Set(d.accounts.filter(a => a.kind === "courant").map(a => a.id));
+  const since = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+  const open = fr.exp.filter(x => x.status !== "remboursee");
+  const groups = new Map();
+  for (const x of open) { const k = x.employerId || ""; groups.set(k, (groups.get(k) || []).concat(x)); }
+  const sum = a => a.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const out = [], used = new Set();
+  for (const t of d.txs.filter(t => cour.has(t.accountId) && t.amount > 0 && t.date >= since && !done.has(t.id) && L.catType(t.cat) !== "int")) {
+    let hit = null;
+    for (const [k, items] of groups) {
+      const sent = items.filter(x => x.status === "envoyee" && !used.has(x.id)), all = items.filter(x => !used.has(x.id));
+      for (const set of [sent, all, ...all.map(x => [x])]) if (set.length && Math.abs(sum(set) - t.amount) < 0.02) { hit = { tx: t, emp: empNameOf(fr, k), items: set }; break; }
+      if (hit) break;
+    }
+    if (hit) { out.push(hit); hit.items.forEach(x => used.add(x.id)); }
+  }
+  return out;
 }
 
 /* ---------- Ce mois ---------- */
@@ -118,6 +175,18 @@ function renderMois() {
   }).join("");
 
   const sav = d.accounts.filter(a => a.matelas);
+  // frais pro avancés, à se faire rembourser
+  const fr = fraisData();
+  const owed = fr.exp.filter(x => x.status !== "remboursee");
+  const byEmp = new Map();
+  for (const x of owed) { const k = x.employerId || ""; const o = byEmp.get(k) || { t: 0, n: 0, sent: 0 }; o.t += Number(x.amount) || 0; o.n++; if (x.status === "envoyee") o.sent++; byEmp.set(k, o); }
+  const owedTot = owed.reduce((a, x) => a + (Number(x.amount) || 0), 0);
+  const reimbs = reimbSuggestions(d, fr);
+  const reimbHtml = (reimbs.length ? reimbs.map((r, i) => `<div class="note ok stack tight"><span>Virement reçu le ${esc(dShort(r.tx.date))} : ${eur(r.tx.amount)}. Ça correspond ${r.items.length > 1 ? `aux ${r.items.length} tickets` : "au ticket"} ${esc(r.emp)}${r.items.length > 1 ? "" : ` (${esc(r.items[0].merchant || "")})`}.</span>
+      <div class="row"><button class="btn" type="button" data-reimb="${i}">Marquer comme remboursé${r.items.length > 1 ? "s" : ""}</button><button class="btn ghost" type="button" data-reimb-no="${i}">Ce n'est pas ça</button></div></div>`).join("") : "")
+    + (owed.length ? `<section class="card stack"><div class="row between"><h2>À te faire rembourser</h2><span class="money due big2">${eur(owedTot)}</span></div>
+      <div class="lines">${[...byEmp].sort((a, b) => b[1].t - a[1].t).map(([k, o]) => `<button type="button" class="line tap" data-go="frais"><span>${esc(empNameOf(fr, k))}</span><span class="money">${eur(o.t)}</span>
+        <span class="sub">${[o.sent ? `${o.sent} envoyé${o.sent > 1 ? "s" : ""}` : "", o.n - o.sent ? `${o.n - o.sent} à envoyer` : ""].filter(Boolean).join(", ")}</span></button>`).join("")}</div></section>` : "");
   const savMissing = sav.filter(a => L.balanceOf(a, d.txs) == null);
 
   el.innerHTML = `
@@ -140,6 +209,7 @@ function renderMois() {
     ${stale ? `<p class="note">Dernière opération importée le ${esc(dShort(lastTx))}. <button class="linkbtn" type="button" data-go="import">Importer le relevé</button> pour un chiffre à jour.</p>` : ""}
   </section>
 
+  ${reimbHtml}
   ${s.upcoming.length ? `<section class="card stack"><h2>Encore à payer ce mois-ci</h2><div class="lines">${s.upcoming.map(c =>
     `<div class="line"><span>${esc(c.name)}</span><span class="money">${eur(c.amount)}</span><span class="sub">vers le ${c.day}</span></div>`).join("")}</div></section>` : ""}
 
@@ -182,6 +252,14 @@ function renderMois() {
     opsMonth = s.month; opsFilter.cat = b.dataset.cat; opsFilter.acc = s.main.id; opsFilter.q = ""; $("fSearch").value = ""; show("ops");
   };
   for (const b of el.querySelectorAll("[data-tx]")) b.onclick = () => editTx(S.list("txs").find(t => t.id === b.dataset.tx));
+  for (const b of el.querySelectorAll("[data-reimb]")) b.onclick = () => {
+    const r = reimbs[+b.dataset.reimb], a = fapi();
+    if (!a) return needFrais();
+    for (const x of r.items) a.save({ ...x, status: "remboursee" });
+    S.saveSettings({ reimbDone: [...(S.settings().reimbDone || []), r.tx.id] });
+    toast(r.items.length > 1 ? `${r.items.length} tickets marqués remboursés.` : "Ticket marqué remboursé.");
+  };
+  for (const b of el.querySelectorAll("[data-reimb-no]")) b.onclick = () => S.saveSettings({ reimbDone: [...(S.settings().reimbDone || []), reimbs[+b.dataset.reimbNo].tx.id] });
   for (const b of el.querySelectorAll("[data-cover]")) b.onclick = () => {
     if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Appuie encore pour confirmer"; return; }
     const a = S.list("accounts").find(x => x.id === b.dataset.cover), p = L.potsOf(a, S.list("txs"));
@@ -215,12 +293,13 @@ function renderOps() {
   const inn = txs.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0), out = -txs.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
   $("opsTotals").textContent = !txs.length ? "" : `${txs.length} opération${txs.length > 1 ? "s" : ""}. ` + (isSav ? `Versé ${eur(inn)}, retiré ${eur(out)}.` : `Dépensé ${eur(dep)}, rentré ${eur(rev)}.`);
   if (!txs.length) { $("opsList").innerHTML = `<p class="empty">Aucune opération ce mois-ci${opsFilter.cat || q ? " avec ces filtres" : ""}.</p>`; return; }
+  const linkedIds = new Set(fraisData().exp.filter(x => x.txId).map(x => x.txId));
   const days = new Map();
   for (const t of txs) days.set(t.date, (days.get(t.date) || []).concat(t));
   $("opsList").innerHTML = [...days].map(([d, ts]) => `<div class="day"><h3>${esc(dLong(d))}</h3><div class="card">${ts.map(t => {
     const ty = L.catType(t.cat);
     return `<button type="button" class="op${ty === "int" || ty === "epa" ? " ignored" : ""}" data-id="${t.id}">
-      ${ico(t.cat)}<span class="lab">${esc(L.displayName(t))}${t.manual ? `<span class="tag">à la main</span>` : ""}</span>
+      ${ico(t.cat)}<span class="lab">${esc(L.displayName(t))}${t.manual ? `<span class="tag">à la main</span>` : ""}${linkedIds.has(t.id) ? `<span class="tag pro">Frais pro</span>` : ""}</span>
       <span class="money${t.amount > 0 ? " pos" : ""}">${signed(t.amount)}</span>
       <span class="cat">${esc(txSub(t))}</span></button>`;
   }).join("")}</div></div>`).join("");
@@ -267,10 +346,21 @@ function editTx(tx) {
   const key = L.keyOf(t.label);
   const accs = S.list("accounts").filter(a => a.kind !== "credit");
   const imported = !t.manual;
+  // lien avec un ticket de frais pro (dépense importée uniquement)
+  const fr = fraisData();
+  const linked = imported && t.amount < 0 ? fr.exp.find(x => x.txId === t.id) : null;
+  const cands = imported && t.amount < 0 && !linked ? fr.exp.filter(x => !x.txId && x.status !== "remboursee" && Math.abs((Number(x.amount) || 0) + t.amount) < 0.011 && dayDiff(x.date, t.date) <= 10) : [];
+  const STAT = { a_envoyer: "à envoyer", envoyee: "envoyé", remboursee: "remboursé" };
+  const proBox = !imported || t.amount >= 0 ? "" : linked
+    ? `<div class="pro"><b>Frais pro</b><p>Lié au ticket « ${esc(linked.merchant || "sans nom")} », ${esc(empNameOf(fr, linked.employerId))}, ${STAT[linked.status] || ""}.</p>
+        <div class="row"><button type="button" class="btn" id="proOpen">Voir le ticket</button><button type="button" class="btn ghost" id="proUnlink">Délier</button></div></div>`
+    : `<div class="pro"><b>C'est un frais pro ?</b>${cands.length ? `<p>${cands.length > 1 ? "Ces tickets ont" : "Ce ticket a"} le même montant à quelques jours près :</p>` : ""}
+        ${cands.map(x => `<button type="button" class="match" data-link="${x.id}"><span class="ico" style="--h:210" aria-hidden="true">🧾</span><span><b>${esc(x.merchant || "Sans nom")}</b><span class="muted">${esc(dShort(x.date))}, ${esc(empNameOf(fr, x.employerId))}, ${STAT[x.status] || ""}</span></span><span class="money">${eur(x.amount)}</span></button>`).join("")}
+        <button type="button" class="match" id="proNew"><span class="ico" style="--h:150" aria-hidden="true">＋</span><span><b>Créer un ticket</b><span class="muted">Pré-rempli avec cette opération</span></span></button></div>`;
   openDialog(`
     <div class="sheet-head">${imported ? ico(t.cat) : ""}<div><h2>${isNew ? "Ajouter une dépense" : esc(L.displayName(t))}</h2>
       ${imported ? `<p class="sheet-amt${t.amount > 0 ? " pos" : ""}">${signed(t.amount)}</p><p class="muted">${esc(dLong(t.date))}, ${esc(accName(t.accountId))}</p>` : ""}</div></div>
-    ${imported ? `<details class="how"><summary>Libellé de la banque</summary><p class="muted">${esc(t.label)}${t.detail ? "<br>" + esc(t.detail) : ""}${t.bankCat ? `<br>Catégorie banque : ${esc(t.bankCat)}` : ""}</p></details>` : `
+    ${imported ? `<details class="how"><summary>Libellé de la banque</summary><p class="muted">${esc(t.label)}${t.detail ? "<br>" + esc(t.detail) : ""}${t.bankCat ? `<br>Catégorie banque : ${esc(t.bankCat)}` : ""}</p></details>${proBox}` : `
     <div class="seg" role="radiogroup" aria-label="Sens"><label><input type="radio" name="sign" value="-" ${t.amount <= 0 ? "checked" : ""}><span>Dépense</span></label><label><input type="radio" name="sign" value="+" ${t.amount > 0 ? "checked" : ""}><span>Rentrée</span></label></div>
     <div class="grid2">
       <div class="field"><label for="eAmt">Montant (€)</label><input id="eAmt" name="amount" inputmode="decimal" required value="${isNew ? "" : String(Math.abs(t.amount)).replace(".", ",")}" placeholder="0,00"></div>
@@ -296,6 +386,19 @@ function editTx(tx) {
     toast(isNew ? "Opération ajoutée." : "Enregistré.");
   }, {
     onDelete: () => { S.remove("txs", t); toast("Supprimée."); },
+    onOpen: () => {
+      for (const b of dlgForm.querySelectorAll("[data-link]")) b.onclick = () => {
+        const a = fapi(); if (!a) return needFrais();
+        const x = a.expenses().find(e => e.id === b.dataset.link); if (!x) return;
+        a.save({ ...x, txId: t.id }); dlg.close(); toast(`Lié au ticket « ${x.merchant || "sans nom"} ».`);
+      };
+      const nw = $("proNew"); if (nw) nw.onclick = () => {
+        const a = fapi(); if (!a) return needFrais();
+        dlg.close(); show("frais"); a.openNew({ date: t.date, amount: -t.amount, merchant: L.displayName(t), txId: t.id });
+      };
+      const op = $("proOpen"); if (op) op.onclick = () => { const a = fapi(); if (!a) return needFrais(); dlg.close(); show("frais"); a.open(linked.id); };
+      const ul = $("proUnlink"); if (ul) ul.onclick = () => { const a = fapi(); if (!a) return needFrais(); a.save({ ...linked, txId: null }); dlg.close(); toast("Lien retiré."); };
+    },
   });
 }
 function applyRule(key, cat, exceptId) {
@@ -535,7 +638,8 @@ function renderSync() {
 $("syncChip").onclick = () => { if (!S.isConnected()) show("comptes"); else S.sync(); };
 
 let raf = 0;
-S.onChange(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { if (!dlg.open) render(); else renderSync(); }); });
+function queueRender() { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { if (!dlg.open) render(); else renderSync(); }); }
+S.onChange(queueRender);
 dlg.addEventListener("close", () => render());
 
 /* ---------- démarrage ---------- */
@@ -547,7 +651,8 @@ async function boot() {
   if (S.isConnected()) await S.sync();
   if (S.isEmpty()) S.seed("accounts", L.defaultAccounts());
   fixCats();
-  render();
+  const h = location.hash.slice(1);
+  if (["ops", "frais", "comptes", "import"].includes(h)) show(h); else render();
 }
 boot();
 
