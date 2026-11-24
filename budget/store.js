@@ -133,9 +133,23 @@ export function remove(k, items) {
   }
   commit();
 }
+// Données de départ (comptes par défaut) : datées de « jamais », elles ne remplacent jamais ce qui est déjà dans Dropbox.
+export function seed(k, items) {
+  const have = new Set(st.data[k].map(x => x.id));
+  for (const x of items) if (!have.has(x.id)) st.data[k].push({ ...x, updatedAt: "" });
+  commit();
+}
 export function saveSettings(s) { st.data.settings = { ...st.data.settings, ...s, updatedAt: nowIso() }; commit(); }
 export function exportData() { return JSON.stringify(st.data, null, 1); }
 export function importData(d) { st.data = merge(st.data, d); commit(); }
+// Restaure une sauvegarde : ses éléments repassent devant ceux de l'appareil et de Dropbox.
+export function restoreData(d) {
+  if (!d || !Array.isArray(d.accounts) || !Array.isArray(d.txs)) throw new Error("bad_backup");
+  const t = nowIso(), fresh = {};
+  for (const k of LISTS) fresh[k] = (d[k] || []).map(x => ({ ...x, updatedAt: t }));
+  fresh.settings = { ...defaultSettings(), ...(d.settings || {}), updatedAt: t };
+  st.data = merge(st.data, fresh); commit();
+}
 
 /* ---------- synchronisation ---------- */
 let syncing = null, again = false, timer = null;
