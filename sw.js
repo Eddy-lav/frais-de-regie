@@ -1,13 +1,13 @@
 // Hors ligne + mises à jour.
 // Fichiers de l'appli : réseau d'abord (toujours la dernière version quand on a du réseau), sinon la copie en cache.
 // Polices Google : cache d'abord.
-const CACHE = "frais-v1";
+const CACHE = "frais-v2";
 const SHELL = ["./", "index.html", "style.css", "app.js", "store.js", "readers.js", "config.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "lib/jspdf-2.5.1.umd.min.js", "lib/jszip-3.10.1.min.js", "lib/pdf-3.11.174.min.js", "lib/pdf.worker-3.11.174.min.js"];
 const CDN = /^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)\//;
 
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {})); });
 self.addEventListener("activate", e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith("frais-") && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener("message", e => { if (e.data === "skipWaiting") self.skipWaiting(); });
 
@@ -16,6 +16,7 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin === location.origin) {
+    if (url.pathname.includes("/budget/")) return; // l'appli budget a son propre service worker
     if (url.searchParams.has("code")) return; // retour de Dropbox : laisser passer
     e.respondWith(fetch(req).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Reste à vivre</title>
+<meta name="description" content="Ce qu'il te reste à dépenser ce mois-ci, à partir de tes relevés Banque Populaire.">
+<meta name="theme-color" content="#1d3557">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Reste à vivre">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1 class="brand">Reste à vivre</h1>
+    <button type="button" class="sync" id="syncChip" data-s="local"><span class="dot"></span><span id="syncText">Sur cet appareil</span></button>
+  </header>
+
+  <nav class="tabs" aria-label="Sections">
+    <button type="button" data-tab="mois" aria-current="page">Ce mois</button>
+    <button type="button" data-tab="ops">Opérations</button>
+    <button type="button" data-tab="import">Importer</button>
+    <button type="button" data-tab="comptes">Comptes</button>
+  </nav>
+
+  <div id="updateBar" class="note" hidden>Nouvelle version prête. <button class="linkbtn" id="btnReload" type="button">Recharger</button></div>
+
+  <!-- CE MOIS -->
+  <main id="tab-mois" class="tab"></main>
+
+  <!-- OPÉRATIONS -->
+  <section id="tab-ops" class="tab" hidden>
+    <div class="row between">
+      <div class="monthnav">
+        <button class="btn icon" id="mPrev" type="button" aria-label="Mois précédent">‹</button>
+        <h2 id="mLabel"></h2>
+        <button class="btn icon" id="mNext" type="button" aria-label="Mois suivant">›</button>
+      </div>
+      <button class="btn primary" id="btnAddTx" type="button">Ajouter une dépense</button>
+    </div>
+    <div class="filters">
+      <select id="fAcc" aria-label="Compte"></select>
+      <select id="fCat" aria-label="Catégorie"></select>
+      <input type="search" id="fSearch" placeholder="Chercher un libellé" aria-label="Chercher">
+    </div>
+    <p class="totals" id="opsTotals"></p>
+    <div id="opsList" class="ops"></div>
+  </section>
+
+  <!-- IMPORT -->
+  <section id="tab-import" class="tab" hidden>
+    <div class="card stack">
+      <h2>Importer un relevé</h2>
+      <p class="muted">Sur le site ou l'appli Banque Populaire, ouvre le compte puis exporte les opérations en <b>CSV</b> (ou OFX). Tu peux réimporter une période déjà importée : les opérations en double sont ignorées, et celles que tu avais ajoutées à la main sont remplacées par celles de la banque.</p>
+      <div class="grid2">
+        <div class="field"><label for="iAcc">Compte</label><select id="iAcc"></select></div>
+        <div class="field"><label for="iFile">Fichier</label><input type="file" id="iFile" accept=".csv,.ofx,.txt,text/csv"></div>
+      </div>
+      <p class="status err" id="iErr" hidden></p>
+    </div>
+    <div class="card stack" id="iPreview" hidden></div>
+    <div id="iSuggest"></div>
+  </section>
+
+  <!-- COMPTES -->
+  <section id="tab-comptes" class="tab" hidden>
+    <div class="card stack">
+      <div class="row between"><h2>Mes comptes</h2><button class="btn" id="btnAddAcc" type="button">Ajouter un compte</button></div>
+      <p class="muted">Le solde des comptes courants se met à jour avec les imports. Pour les livrets, l'assurance vie et le prêt, mets le solde à jour de temps en temps.</p>
+      <div id="accList" class="acclist"></div>
+    </div>
+    <div class="card stack">
+      <div class="row between"><h2>Charges fixes</h2><button class="btn" id="btnAddCharge" type="button">Ajouter</button></div>
+      <p class="muted">Ce qui part tous les mois (prêt, part du compte joint, téléphone…). Tant qu'une charge n'est pas passée sur le compte, elle est retirée de ce qu'il te reste.</p>
+      <div id="chargeSuggest"></div>
+      <div id="chargeList" class="stack tight"></div>
+    </div>
+    <div class="card stack">
+      <h2>Réglages</h2>
+      <div class="grid2">
+        <div class="field"><label for="sCushion">Coussin à garder sur le compte (€)</label><input id="sCushion" type="text" inputmode="decimal"></div>
+        <div class="field"><label for="sBig">Me signaler une dépense à partir de (€)</label><input id="sBig" type="text" inputmode="decimal"></div>
+      </div>
+      <div class="block stack">
+        <h3>Synchronisation Dropbox</h3>
+        <p class="muted" id="dbxText"></p>
+        <div class="row" id="dbxConnect" hidden>
+          <button class="btn" id="btnDbxOpen" type="button">1. Ouvrir Dropbox</button>
+          <input id="dbxCode" type="text" placeholder="2. Colle le code ici" aria-label="Code Dropbox" class="grow">
+          <button class="btn primary" id="btnDbxOk" type="button">Valider</button>
+        </div>
+        <p class="status small" id="dbxErr"></p>
+      </div>
+      <div class="block row">
+        <button class="btn" id="btnBackup" type="button">Télécharger une sauvegarde</button>
+        <a class="btn ghost" href="../">Ouvrir Frais de régie</a>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm" class="stack"></form></dialog>
+</body>
+</html>
