@@ -163,7 +163,7 @@ $("fSearch").oninput = e => { opsFilter.q = e.target.value; renderOps(); };
 $("btnAddTx").onclick = () => editTx(null);
 
 function renderOps() {
-  const accs = S.list("accounts").filter(a => a.kind === "courant");
+  const accs = S.list("accounts").filter(a => a.kind !== "credit");
   if (!opsFilter.acc || !accs.some(a => a.id === opsFilter.acc)) opsFilter.acc = mainAcc()?.id || "";
   $("fAcc").innerHTML = accs.map(a => `<option value="${a.id}"${a.id === opsFilter.acc ? " selected" : ""}>${esc(a.name)}</option>`).join("");
   $("fCat").innerHTML = `<option value="">Toutes les catégories</option>` + catOptions(opsFilter.cat);
@@ -174,7 +174,9 @@ function renderOps() {
     && (!q || L.normLabel(t.label + " " + (t.detail || "") + " " + (t.note || "")).includes(q))).sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
   const dep = -txs.filter(t => L.catType(t.cat) === "dep").reduce((s, t) => s + t.amount, 0);
   const rev = txs.filter(t => L.catType(t.cat) === "rev").reduce((s, t) => s + t.amount, 0);
-  $("opsTotals").textContent = txs.length ? `${txs.length} opération${txs.length > 1 ? "s" : ""}. Dépensé ${eur(dep)}, rentré ${eur(rev)}.` : "";
+  const isSav = S.list("accounts").find(a => a.id === opsFilter.acc)?.kind === "epargne";
+  const inn = txs.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0), out = -txs.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+  $("opsTotals").textContent = !txs.length ? "" : `${txs.length} opération${txs.length > 1 ? "s" : ""}. ` + (isSav ? `Versé ${eur(inn)}, retiré ${eur(out)}.` : `Dépensé ${eur(dep)}, rentré ${eur(rev)}.`);
   if (!txs.length) { $("opsList").innerHTML = `<p class="empty">Aucune opération ce mois-ci${opsFilter.cat || q ? " avec ces filtres" : ""}.</p>`; return; }
   const days = new Map();
   for (const t of txs) days.set(t.date, (days.get(t.date) || []).concat(t));
@@ -209,7 +211,7 @@ function editTx(tx) {
   const isNew = !tx;
   const t = tx || { date: L.todayStr(), amount: 0, label: "", cat: "autre", accountId: opsFilter.acc || mainAcc()?.id, manual: true };
   const key = L.keyOf(t.label);
-  const accs = S.list("accounts").filter(a => a.kind === "courant");
+  const accs = S.list("accounts").filter(a => a.kind !== "credit");
   openDialog(`
     <h2>${isNew ? "Ajouter une opération" : "Opération"}</h2>
     ${!isNew && !t.manual ? `<p class="muted">${esc(t.label)}${t.detail ? "<br>" + esc(t.detail) : ""}${t.bankCat ? `<br>Banque : ${esc(t.bankCat)}` : ""}</p>` : ""}
@@ -252,7 +254,7 @@ function applyRule(key, cat, exceptId) {
 /* ---------- Import ---------- */
 let pendingImport = null;
 function renderImportForm() {
-  const accs = S.list("accounts").filter(a => a.kind === "courant");
+  const accs = S.list("accounts").filter(a => a.kind !== "credit");
   const cur = $("iAcc").value || mainAcc()?.id;
   $("iAcc").innerHTML = accs.map(a => `<option value="${a.id}"${a.id === cur ? " selected" : ""}>${esc(a.name)}</option>`).join("");
   renderSuggest($("iSuggest"));
@@ -335,7 +337,7 @@ function renderComptes() {
   $("accList").innerHTML = d.accounts.map(a => {
     const b = L.balanceOf(a, d.txs);
     return `<button type="button" class="acc" data-id="${a.id}"><span class="n">${esc(a.name)}</span><span class="money">${b == null ? `<span class="muted">Solde ?</span>` : eur(a.kind === "credit" ? -Math.abs(b) : b)}</span>
-      <span class="k">${KIND[a.kind]}${a.main ? ", sert au calcul du reste" : ""}${a.matelas ? ", épargne de secours" : ""}${a.ref?.date && a.kind !== "courant" ? `, mis à jour le ${esc(dShort(a.ref.date))}` : ""}</span></button>`;
+      <span class="k">${KIND[a.kind]}${a.main ? ", sert au calcul du reste" : ""}${a.matelas ? ", épargne de secours" : ""}${a.ref?.date && a.kind === "credit" ? `, mis à jour le ${esc(dShort(a.ref.date))}` : ""}</span></button>`;
   }).join("");
   for (const b of $("accList").querySelectorAll(".acc")) b.onclick = () => editAccount(S.list("accounts").find(a => a.id === b.dataset.id));
   const month = L.ym(L.todayStr());

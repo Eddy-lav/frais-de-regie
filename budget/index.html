@@ -59,7 +59,7 @@
   <section id="tab-import" class="tab" hidden>
     <div class="card stack">
       <h2>Importer un relevé</h2>
-      <p class="muted">Sur le site ou l'appli Banque Populaire, ouvre le compte puis exporte les opérations en <b>CSV</b> (ou OFX). Tu peux réimporter une période déjà importée : les opérations en double sont ignorées, et celles que tu avais ajoutées à la main sont remplacées par celles de la banque.</p>
+      <p class="muted">Sur le site ou l'appli Banque Populaire, ouvre le compte ou le livret puis exporte les opérations en <b>CSV</b> (ou OFX). Tu peux réimporter une période déjà importée : les opérations en double sont ignorées, et celles que tu avais ajoutées à la main sont remplacées par celles de la banque.</p>
       <div class="grid2">
         <div class="field"><label for="iAcc">Compte</label><select id="iAcc"></select></div>
         <div class="field"><label for="iFile">Fichier</label><input type="file" id="iFile" accept=".csv,.ofx,.txt,text/csv"></div>
@@ -74,7 +74,7 @@
   <section id="tab-comptes" class="tab" hidden>
     <div class="card stack">
       <div class="row between"><h2>Mes comptes</h2><button class="btn" id="btnAddAcc" type="button">Ajouter un compte</button></div>
-      <p class="muted">Le solde des comptes courants se met à jour avec les imports. Pour les livrets, l'assurance vie et le prêt, mets le solde à jour de temps en temps.</p>
+      <p class="muted">Le solde des comptes et des livrets se met à jour avec les imports. Pour le prêt, mets le capital restant à jour de temps en temps.</p>
       <div id="accList" class="acclist"></div>
     </div>
     <div class="card stack">
