@@ -97,6 +97,10 @@ input[type=checkbox],input[type=radio]{width:auto;min-height:0;accent-color:var(
 .lines{display:flex;flex-direction:column}
 .line{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:9px 0;border-top:1px solid var(--line);align-items:baseline}
 .line:first-child{border-top:0}
+button.line{width:100%;font:inherit;color:inherit;text-align:left;background:none;border-width:1px 0 0;border-style:solid;border-color:var(--line);cursor:pointer;margin:0}
+button.line:first-child{border-top:0}
+@media (hover:hover){button.line:hover span:first-child{text-decoration:underline}}
+button.line:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .line .sub{grid-column:1/-1;font-size:.84rem;color:var(--muted)}
 .line.warn .money{color:var(--hot);font-weight:700}
 .bar{grid-column:1/-1;height:6px;border-radius:3px;background:var(--off);position:relative;overflow:visible}

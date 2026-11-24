@@ -84,11 +84,11 @@ function renderMois() {
 
   const catLines = s.cats.filter(c => c.now > 0 || c.avg).slice(0, 10).map(c => {
     const max = Math.max(...s.cats.map(x => Math.max(x.now, x.avg || 0)), 1);
-    return `<div class="line${c.high ? " warn" : ""}">
+    return `<button type="button" class="line tap${c.high ? " warn" : ""}" data-cat="${c.cat}" aria-label="Voir les opérations ${esc(L.CAT[c.cat]?.name || c.cat)}">
       <span>${esc(L.CAT[c.cat]?.name || c.cat)}</span><span class="money">${eur0(c.now)}</span>
       <div class="bar"><b style="width:${c.now / max * 100}%"></b>${c.avg ? `<s style="left:${c.avg / max * 100}%"></s>` : ""}</div>
       ${c.avg != null ? `<span class="sub">${!c.avg ? "Rien les mois précédents" : (c.high ? "Plus que d'habitude. " : "") + `D'habitude ${eur0(c.avg)} par mois`}</span>` : ""}
-    </div>`;
+    </button>`;
   }).join("");
 
   const incMax = Math.max(...s.incomeMonths.map(m => m.are + m.cachets + m.other), 1);
@@ -133,7 +133,7 @@ function renderMois() {
   </section>
 
   ${s.big.length ? `<section class="card stack"><h2>Grosses dépenses du mois</h2><div class="lines">${s.big.map(t =>
-    `<div class="line"><span>${esc(t.note || t.label)}</span><span class="money">${eur(-t.amount)}</span><span class="sub">${esc(dShort(t.date))}, ${esc(L.CAT[t.cat]?.name || "")}</span></div>`).join("")}</div></section>` : ""}
+    `<button type="button" class="line tap" data-tx="${t.id}"><span>${esc(t.note || t.label)}</span><span class="money">${eur(-t.amount)}</span><span class="sub">${esc(dShort(t.date))}, ${esc(L.CAT[t.cat]?.name || "")}</span></button>`).join("")}</div></section>` : ""}
 
   <section class="card stack">
     <h2>Rentrées des 6 derniers mois</h2>
@@ -150,7 +150,12 @@ function renderMois() {
       : `<p>Ton épargne de secours (${sav.map(a => esc(a.name)).join(" + ")}) : <b>${eur0(s.savings)}</b>, soit environ <b>${s.months.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} mois</b> de dépenses sans aucune rentrée.</p>
          <p class="muted">Calculé sur ce qui sort en moyenne de ton compte perso : ${eur0(s.avgOut)} par mois. Les intermittents visent souvent 3 mois.</p>`}
   </section>`;
-  $("goOps").onclick = () => { opsMonth = s.month; show("ops"); };
+  $("goOps").onclick = () => { opsMonth = s.month; opsFilter.cat = ""; opsFilter.q = ""; $("fSearch").value = ""; show("ops"); };
+  // une catégorie -> ses opérations du mois ; une grosse dépense -> sa fiche
+  for (const b of el.querySelectorAll("[data-cat]")) b.onclick = () => {
+    opsMonth = s.month; opsFilter.cat = b.dataset.cat; opsFilter.acc = s.main.id; opsFilter.q = ""; $("fSearch").value = ""; show("ops");
+  };
+  for (const b of el.querySelectorAll("[data-tx]")) b.onclick = () => editTx(S.list("txs").find(t => t.id === b.dataset.tx));
 }
 
 /* ---------- Opérations ---------- */
