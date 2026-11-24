@@ -246,7 +246,7 @@ export function prevMonths(ymStr, n) {
 // Solde = solde de référence (saisi ou lu dans le relevé) + opérations postérieures.
 export function balanceOf(acc, txs) {
   if (!acc.ref || acc.ref.amount == null || acc.ref.amount === "") return null;
-  if (acc.kind !== "courant") return Number(acc.ref.amount);
+  if (acc.kind === "credit") return Number(acc.ref.amount);
   let b = Number(acc.ref.amount);
   for (const t of txs) {
     if (t.accountId !== acc.id) continue;
