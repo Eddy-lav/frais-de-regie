@@ -121,9 +121,9 @@ function renderMois() {
   const d = data();
   const s = L.monthSummary(d);
   const el = $("tab-mois");
-  if (!s.main || s.balance == null) {
-    const hasTx = s.main && d.txs.some(t => t.accountId === s.main.id);
-    el.innerHTML = `${S.isConnected() ? "" : `<p class="note">Tes données ne sont que sur cet appareil. <button class="linkbtn" type="button" data-go="comptes">Connecte Dropbox</button> pour retrouver celles de ton téléphone ou de ton ordi.</p>`}<div class="card stack">
+  const hasTx = s.main && d.txs.some(t => t.accountId === s.main.id);
+  const banner = `${S.isConnected() ? "" : `<p class="note">Tes données ne sont que sur cet appareil. <button class="linkbtn" type="button" data-go="comptes">Connecte Dropbox</button> pour retrouver celles de ton téléphone ou de ton ordi.</p>`}`;
+  const setupCard = `<div class="card stack">
       <h2>Combien il te reste ce mois-ci</h2>
       <p class="muted">Pour le calculer, il me faut ce qui est sur ton compte perso et ce qui va encore en partir avant la fin du mois.</p>
       <ol class="steps">
@@ -134,9 +134,7 @@ function renderMois() {
       <div class="row"><button class="btn primary" type="button" data-go="import">Importer un relevé</button>
       ${hasTx ? `<button class="btn" type="button" id="btnSetBal">Indiquer le solde</button>` : ""}</div>
     </div>`;
-    if (hasTx) $("btnSetBal").onclick = () => editAccount(s.main);
-    return;
-  }
+  if (!s.main) { el.innerHTML = banner + setupCard; return; }
   const end = dShort(`${s.month}-${String(L.lastDayOfMonth(s.month)).padStart(2, "0")}`);
   const neg = s.left < 0;
   // vumètre : le solde découpé en reste / charges à venir / coussin
@@ -189,8 +187,7 @@ function renderMois() {
         <span class="sub">${[o.sent ? `${o.sent} envoyé${o.sent > 1 ? "s" : ""}` : "", o.n - o.sent ? `${o.n - o.sent} à envoyer` : ""].filter(Boolean).join(", ")}</span></button>`).join("")}</div></section>` : "");
   const savMissing = sav.filter(a => L.balanceOf(a, d.txs) == null);
 
-  el.innerHTML = `
-  ${S.isConnected() ? "" : `<p class="note">Tes données ne sont que sur cet appareil. <button class="linkbtn" type="button" data-go="comptes">Connecte Dropbox</button> pour retrouver celles de ton téléphone ou de ton ordi.</p>`}
+  const heroHtml = s.balance == null ? setupCard : `
   <section class="card hero" aria-labelledby="heroLead">
     <p class="lead" id="heroLead">${neg ? "Ce mois-ci, il manque" : "Tu peux encore dépenser"}</p>
     <p class="big${neg ? " neg" : ""}">${eur0(Math.abs(s.left))}</p>
@@ -207,11 +204,10 @@ function renderMois() {
       <dt class="tot">${neg ? "Manque" : "Reste à dépenser"}</dt><dd class="money">${eur(s.left)}</dd>
     </dl></details>
     ${stale ? `<p class="note">Dernière opération importée le ${esc(dShort(lastTx))}. <button class="linkbtn" type="button" data-go="import">Importer le relevé</button> pour un chiffre à jour.</p>` : ""}
-  </section>
-
-  ${reimbHtml}
-  ${s.upcoming.length ? `<section class="card stack"><h2>Encore à payer ce mois-ci</h2><div class="lines">${s.upcoming.map(c =>
-    `<div class="line"><span>${esc(c.name)}</span><span class="money">${eur(c.amount)}</span><span class="sub">vers le ${c.day}</span></div>`).join("")}</div></section>` : ""}
+  </section>`;
+  el.innerHTML = `
+  ${banner}
+  ${heroHtml}
 
   <section class="card stack">
     <div class="row between"><h2>${esc(mLong(s.month).replace(/^./, c => c.toUpperCase()))}</h2><button class="linkbtn" type="button" id="goOps">Voir les opérations</button></div>
@@ -219,6 +215,11 @@ function renderMois() {
     <div class="lines">${catLines || `<p class="muted">Rien encore ce mois-ci.</p>`}</div>
     ${shownCats.length > 5 ? `<button class="btn ghost more" type="button" id="catsMore" aria-expanded="${catsOpen}">${catsOpen ? "Voir moins" : `Voir les ${shownCats.length} catégories`}</button>` : ""}
   </section>
+
+  ${reimbHtml}
+  ${s.upcoming.length ? `<section class="card stack"><h2>Encore à payer ce mois-ci</h2><div class="lines">${s.upcoming.map(c =>
+    `<div class="line"><span>${esc(c.name)}</span><span class="money">${eur(c.amount)}</span><span class="sub">vers le ${c.day}</span></div>`).join("")}</div></section>` : ""}
+
 
   ${s.big.length ? `<section class="card stack"><h2>Grosses dépenses du mois</h2><div class="lines">${s.big.slice(0, 5).map(t =>
     `<button type="button" class="line tap withico" data-tx="${t.id}">${ico(t.cat)}<span>${esc(L.displayName(t))}</span><span class="money">${eur(-t.amount)}</span><span class="sub">${esc(dShort(t.date))}, ${esc(txSub(t))}</span></button>`).join("")}</div></section>` : ""}
@@ -245,6 +246,7 @@ function renderMois() {
       ${p.debt > 0 && p.conges > 0 ? `<button class="btn" type="button" data-cover="${p.acc.id}">Couvrir l'avance avec les congés (${eur(Math.min(p.debt, p.conges))})</button>` : ""}
     </div>`).join("")}
   </section>`;
+  $("btnSetBal")?.addEventListener("click", () => editAccount(s.main));
   $("catsMore")?.addEventListener("click", () => { catsOpen = !catsOpen; renderMois(); });
   $("goOps").onclick = () => { opsMonth = s.month; opsFilter.cat = ""; opsFilter.q = ""; $("fSearch").value = ""; show("ops"); };
   // une catégorie -> ses opérations du mois ; une grosse dépense -> sa fiche

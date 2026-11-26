@@ -1,5 +1,5 @@
 // Hors ligne + mises à jour de l'appli budget (réseau d'abord, sinon la copie en cache).
-const CACHE = "budget-v3";
+const CACHE = "budget-v4";
 const SHELL = ["./", "index.html", "style.css", "app.js", "store.js", "logic.js", "../config.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png"];
 const CDN = /^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)\//;
 
